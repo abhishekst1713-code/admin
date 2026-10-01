@@ -312,10 +312,8 @@ function requireRole(...allowedRoles) {
 // /auth/me role check, and nothing else — no Overview/Analytics/Social/
 // Settings/candidate data. Mounted on '/api' (before the social router,
 // before leads, before every other endpoint below) so it's the first
-// thing every request hits after authentication. Every other role
-// (currently just 'admin') is unaffected by this gate; the separate
-// requireRole('finance') below keeps admins out of /api/leads the same
-// way this keeps finance out of everything else.
+// thing every request hits after authentication. Admin is unaffected by
+// this gate and can reach both Sales and everything else.
 function restrictFinanceToSalesOnly(req, res, next) {
   if (currentUserRole(req) === 'finance' && req.path !== '/auth/me' && !req.path.startsWith('/leads')) {
     return res.status(403).json({ error: 'Finance accounts can only access the Sales module.', code: 'FORBIDDEN_ROLE' });
@@ -335,11 +333,11 @@ app.get('/api/auth/me', (req, res) => {
 app.use('/api', socialRoutes.protectedRouter);
 
 // Leads routes (protected) — see routes/leads.js. The Sales module is
-// finance-team only. The gate is mounted on /api/leads specifically:
-// mounting it on /api alongside the router would run it for every /api
-// request that reaches this point and lock non-finance users out of all
-// the routes below.
-app.use('/api/leads', requireRole('finance'));
+// open to finance and admin. The gate is mounted on /api/leads
+// specifically: mounting it on /api alongside the router would run it
+// for every /api request that reaches this point and lock out roles
+// that aren't finance/admin from all the routes below.
+app.use('/api/leads', requireRole('finance', 'admin'));
 app.use('/api', leadsRoutes);
 
 // Get dashboard configuration and connection status

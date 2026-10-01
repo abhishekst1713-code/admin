@@ -261,11 +261,11 @@ router.patch('/leads/:id', async (req, res) => {
 });
 
 // Reuses the same login-accounts roster as the Inbox's assignee dropdown
-// (routes/social.js's GET /social/team), narrowed to the finance team —
-// they're the only role that can open the Sales module, so assigning a
-// lead to anyone else would hand it to someone who can't see it.
+// (routes/social.js's GET /social/team), narrowed to finance + admin —
+// the only roles that can open the Sales module, so assigning a lead to
+// anyone else would hand it to someone who can't see it.
 router.get('/leads/team', (req, res) => {
-  res.json({ users: listUsers().filter(u => u.role === 'finance') });
+  res.json({ users: listUsers().filter(u => u.role === 'finance' || u.role === 'admin') });
 });
 
 module.exports = router;

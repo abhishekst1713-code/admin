@@ -1181,15 +1181,16 @@ function App() {
   // Authentication State
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [userEmail, setUserEmail] = useState(localStorage.getItem('userEmail') || '');
-  // 'admin' or 'finance'. Finance is a Sales-only role: canViewSales also
-  // doubles as "hide everything that isn't Sales" below, since finance is
-  // the only role Sales is scoped to. This only gates what the sidebar
-  // offers and what gets fetched — the backend enforces the same split on
-  // its own (restrictFinanceToSalesOnly in server.js), and the role is
-  // re-asked via /auth/me on load so a change takes effect without a
-  // re-login.
+  // 'admin' or 'finance'. Finance is a Sales-only role (isFinance also
+  // means "hide everything that isn't Sales" below). Admin can see Sales
+  // alongside everything else. This only gates what the sidebar offers
+  // and what gets fetched — the backend enforces the matching split on
+  // its own (restrictFinanceToSalesOnly + requireRole in server.js), and
+  // the role is re-asked via /auth/me on load so a change takes effect
+  // without a re-login.
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || 'admin');
-  const canViewSales = userRole === 'finance';
+  const isFinance = userRole === 'finance';
+  const canViewSales = isFinance || userRole === 'admin';
   const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authError, setAuthError] = useState('');
@@ -1369,7 +1370,7 @@ function App() {
   // sidebar, so skip the calls entirely rather than surface them as a
   // backend-error banner.
   const loadInitialData = async () => {
-    if (!token || canViewSales) return;
+    if (!token || isFinance) return;
     setLoading(true);
     setBackendError(false);
     try {
@@ -1396,10 +1397,10 @@ function App() {
   };
 
   useEffect(() => {
-    if (token && !canViewSales) {
+    if (token && !isFinance) {
       loadInitialData();
     }
-  }, [token, canViewSales]);
+  }, [token, isFinance]);
 
   // Re-check the role with the backend rather than trusting what login
   // stored in localStorage — picks up a role change made since then.
@@ -1417,16 +1418,17 @@ function App() {
 
   // Finance is Sales-only: bounce it onto a Sales view if it somehow isn't
   // on one (first login, a stale view from before a demotion/promotion).
-  // Everyone else is bounced the other way, off a Sales view they no
-  // longer have (demoted away from finance).
+  // Anyone who can't view Sales at all is bounced the other way, off a
+  // Sales view they no longer have (e.g. demoted away from finance/admin).
+  // Admin is free to be on either side and is never bounced.
   useEffect(() => {
     const onSalesView = currentView === 'leads' || currentView === 'leads-dashboard';
-    if (canViewSales && !onSalesView) {
+    if (isFinance && !onSalesView) {
       setCurrentView('leads-dashboard');
     } else if (!canViewSales && onSalesView) {
       setCurrentView('overview');
     }
-  }, [canViewSales, currentView]);
+  }, [isFinance, canViewSales, currentView]);
 
   // Analytics — cross-tool signals (health, alerts, report monitoring)
   // fetched whenever Analytics OR the Overview dashboard is open — Overview
@@ -1839,11 +1841,11 @@ function App() {
           <span className="logo-text" style={{ fontSize: '1.15rem' }}>Admin Panel</span>
         </div>
 
-        {/* Finance is Sales-only (see canViewSales above) — none of this,
+        {/* Finance is Sales-only (see isFinance above) — none of this,
             nor Social, nor Tool Categories below, is reachable on the
             backend for that role, so there's nothing for it to click into
-            here either. */}
-        {!canViewSales && (
+            here either. Admin can see Sales below AND all of this. */}
+        {!isFinance && (
         <div className="menu-section">
           <div className="menu-title">Main Dashboard</div>
           <ul className="menu-list">
@@ -1891,7 +1893,7 @@ function App() {
         </div>
         )}
 
-        {!canViewSales && <SocialNav currentView={currentView} setCurrentView={setCurrentView} />}
+        {!isFinance && <SocialNav currentView={currentView} setCurrentView={setCurrentView} />}
 
         {canViewSales && (
         <div className="menu-section">
@@ -1924,7 +1926,7 @@ function App() {
             view, same as before. Categories are derived from each
             adapter's metadata.category, so a new one like "Psychometric"
             appears here automatically the moment a tool declares it. */}
-        {!canViewSales && (
+        {!isFinance && (
         <div className="menu-section">
           <div className="menu-title">Tool Categories</div>
           <ul className="menu-list">
