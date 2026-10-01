@@ -1,6 +1,4 @@
-// Same hardcoded-base-URL convention App.jsx already uses for API_BASE —
-// one constant, no env var layer in this frontend today.
-export const SOCIAL_API_BASE = 'http://localhost:5000/api/social';
+export const SOCIAL_API_BASE = `${import.meta.env.VITE_API_BASE || 'http://localhost:5000'}/api/social`;
 
 export const PLATFORM_LABELS = {
   youtube: 'YouTube',

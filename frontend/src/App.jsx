@@ -61,7 +61,7 @@ import SocialDashboard from './social/Dashboard';
 import Leads from './leads/Leads';
 import LeadsDashboard from './leads/Dashboard';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = `${import.meta.env.VITE_API_BASE || 'http://localhost:5000'}/api`;
 
 // Validated per the dataviz skill (references/palette.md) — an 8-hue
 // fixed categorical order (never cycled or reordered per series) for

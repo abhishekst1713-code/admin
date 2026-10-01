@@ -1,5 +1,4 @@
-// Same hardcoded-base-URL convention as frontend/src/social/api.js.
-export const LEADS_API_BASE = 'http://localhost:5000/api/leads';
+export const LEADS_API_BASE = `${import.meta.env.VITE_API_BASE || 'http://localhost:5000'}/api/leads`;
 
 export const STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
