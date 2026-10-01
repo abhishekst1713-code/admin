@@ -26,5 +26,12 @@
     "password": "$2b$10$hxUffQEscQ5o/IOPEEqu6.fk1A218iPKCNXQi0XY2Pd.cQ3V1lyYW",
     "role": "finance",
     "createdAt": "2026-10-01T07:15:00.000Z"
+  },
+  {
+    "id": "1790857484805",
+    "email": "admin@infopaceindia.com",
+    "createdAt": "2026-10-01T12:24:44.805Z",
+    "role": "admin",
+    "password": "$2b$10$KnsHPdBZl9kv9YC8ML22ZeI8OSED.1oDP/X9KuwSLAI8v83bqJOia"
   }
 ]
