@@ -1272,6 +1272,28 @@ function App() {
   const [backendError, setBackendError] = useState(false);
   const [saveMessages, setSaveMessages] = useState({});
 
+  // Admin-only: triggers POST /api/leads/test-notify (see routes/leads.js)
+  // to verify the real lead-notification email actually sends in whatever
+  // environment this is running in, without writing a fake row into the
+  // leads table or needing a real Facebook form submission.
+  const [testNotifyLoading, setTestNotifyLoading] = useState(false);
+  const [testNotifyResult, setTestNotifyResult] = useState(null);
+  const handleTestNotify = async () => {
+    setTestNotifyLoading(true);
+    setTestNotifyResult(null);
+    try {
+      const res = await authFetch(`${API_BASE}/leads/test-notify`, { method: 'POST' });
+      const data = await res.json();
+      setTestNotifyResult(res.ok
+        ? { type: 'success', text: `Sent to: ${data.recipients.join(', ')}` }
+        : { type: 'error', text: data.error || 'Request failed.' });
+    } catch (err) {
+      setTestNotifyResult({ type: 'error', text: err.message });
+    } finally {
+      setTestNotifyLoading(false);
+    }
+  };
+
   // Auth Handlers
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -3102,6 +3124,29 @@ function App() {
                 </div>
               ))}
             </div>
+
+            {userRole === 'admin' && (
+              <div className="config-card" style={{ marginTop: '1.5rem', maxWidth: '480px' }}>
+                <div className="config-header">
+                  <h3>Lead Notification Test</h3>
+                </div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                  Sends the real "New lead" email (sample data, nothing written to the leads table) to everyone in LEADS_NOTIFY_EMAIL — use this to verify SMTP is working without waiting for a real lead.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.85rem' }}>
+                    {testNotifyResult && (
+                      <span style={{ color: testNotifyResult.type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                        {testNotifyResult.text}
+                      </span>
+                    )}
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={handleTestNotify} disabled={testNotifyLoading}>
+                    {testNotifyLoading ? 'Sending…' : 'Send Test Notification'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
