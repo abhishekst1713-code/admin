@@ -184,4 +184,4 @@ function stop() {
   intervalHandle = null;
 }
 
-module.exports = { start, stop, sweep };
+module.exports = { start, stop, sweep, notifyNewLead };

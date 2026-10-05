@@ -11,6 +11,7 @@ const ExcelJS = require('exceljs');
 const { getSocialClient } = require('../social/db');
 const { listUsers } = require('../lib/users');
 const { sendPendingDigest } = require('../leads/digest');
+const { notifyNewLead } = require('../leads/poller');
 
 const router = express.Router();
 
@@ -279,6 +280,41 @@ router.post('/leads/notify-pending', async (req, res) => {
   try {
     const result = await sendPendingDigest({ dryRun: req.query.dryRun === 'true' });
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin-only: sends the real per-lead "New lead: ..." email (the exact
+// function the Meta Lead Ads poller calls) using sample data, so SMTP/
+// production delivery can be verified on demand without a real Facebook
+// form submission and without writing anything to the leads table. This
+// router is already behind requireRole('finance', 'admin') (server.js),
+// but this one route is narrowed further to admin only — finance has no
+// reason to be testing backend email delivery.
+router.post('/leads/test-notify', async (req, res) => {
+  const user = listUsers().find(u => u.id === req.user.id);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin only.', code: 'FORBIDDEN_ROLE' });
+  }
+
+  const sampleLead = {
+    full_name: 'Test Lead',
+    email: 'test@example.com',
+    phone: '+910000000000',
+    form_name: 'Test Form (not a real submission)',
+    campaign_name: 'Manual admin test',
+    ad_name: 'test-notify endpoint',
+    created_time: new Date().toISOString(),
+    field_data: [{ name: 'note', values: ['Sent via POST /api/leads/test-notify — nothing was written to the leads table.'] }]
+  };
+
+  try {
+    const sent = await notifyNewLead(sampleLead);
+    if (!sent) {
+      return res.status(500).json({ error: 'notifyNewLead() returned false — LEADS_NOTIFY_EMAIL or SMTP is not configured in this environment.' });
+    }
+    res.json({ sent: true, recipients: (process.env.LEADS_NOTIFY_EMAIL || '').split(',').map(s => s.trim()).filter(Boolean) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
