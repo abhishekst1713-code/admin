@@ -1,88 +1,123 @@
-# Aegis Assessment Portal (Unified 5-Database Dashboard)
+# Admin Panel
 
-A premium, modern dashboard designed to aggregate and display test taker information, test responses, and generate PDF report exports from **5 separate Supabase (PostgreSQL) databases**.
+A unified dashboard that brings together three things Infopace runs separately:
+
+1. **Assessment reporting** — aggregates candidate data, test responses, and PDF/Excel report exports across 6 separate Supabase (PostgreSQL) assessment databases.
+2. **Social media management** — connect YouTube, Google Business Profile, Facebook, Instagram, LinkedIn, and WhatsApp accounts; schedule and publish posts; a unified inbox for mentions/DMs; engagement analytics.
+3. **Sales / Leads (CRM)** — captures Meta Lead Ads submissions automatically, emails internal notifications + an acknowledgement to the lead, and gives the sales team a pipeline dashboard to work from.
+
+Access is role-based: **admin** sees everything; **finance** is scoped to the Sales module only.
 
 ## Project Architecture
 
 ```
 ├── backend/
-│   ├── adapters/
-│   │   ├── db1.js (Cognitive Aptitude Test Adapter)
-│   │   ├── db2.js (Coding Skills Assessment Adapter)
-│   │   ├── db3.js (Personality Profile Adapter)
-│   │   ├── db4.js (English Proficiency Test Adapter)
-│   │   └── db5.js (Technical Architecture Quiz Adapter)
-│   ├── server.js (Express API server & PDF generator)
-│   ├── .env (Configuration variables for database credentials)
+│   ├── adapters/          # One file per assessment DB (db1.js–db6.js), each
+│   │                       mapping that project's schema to a common shape
+│   ├── social/
+│   │   ├── adapters/      # One file per platform (youtube, google-business,
+│   │   │                    facebook, instagram, linkedin, whatsapp)
+│   │   ├── queue.js       # BullMQ + Redis publish queue for scheduled posts
+│   │   ├── scheduler.js   # Legacy interval-based scheduler (Phase 1)
+│   │   ├── pollers.js     # Inbound sync: mentions/inbox
+│   │   └── db.js          # Client for the dedicated "social" Supabase project
+│   ├── leads/
+│   │   ├── poller.js      # Polls Meta Lead Ads forms, inserts new leads,
+│   │   │                    sends internal + lead-acknowledgement emails
+│   │   └── digest.js       # Shared digest-email logic (CLI script + HTTP route)
+│   ├── routes/             # Express route modules (leads, social, etc.)
+│   ├── migrations/         # SQL migrations for the social Supabase project
+│   ├── scripts/            # One-off / maintenance scripts (see below)
+│   ├── lib/                # Shared helpers: email, users, GA4
+│   ├── server.js           # Express app entry point, auth, role gates
+│   ├── .env                # Configuration (not committed — see .env.example)
 │   └── package.json
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx (Main React App UI)
-│   │   ├── index.css (Premium Dark Slate & Neon CSS styling)
+│   │   ├── App.jsx         # Main app shell, auth, sidebar/routing
+│   │   ├── social/         # Social module UI (Dashboard, Compose, Inbox, Analytics)
+│   │   ├── leads/           # Sales module UI (Leads table, Dashboard)
 │   │   └── main.jsx
 │   ├── index.html
 │   └── package.json
 │
-└── package.json (Root workspace config)
+└── package.json             # Root workspace config (runs both via concurrently)
 ```
 
-### Key Design Patterns Used
-1. **Database Adapter Pattern**: Since every assessment tool uses different schemas, the backend queries each project via its own file under `backend/adapters/`. These adapters query individual tables and format the output into a unified structure.
-2. **Dynamic Client Pooling**: Supabase clients are instantiated on demand. If a project's credentials are not configured in `.env`, the adapter falls back to realistic high-fidelity mock data automatically.
-3. **Dynamic Connection Settings Panel**: You can paste in live URL and Key configuration details directly inside the dashboard UI to connect databases in real-time.
-4. **Backend PDF Generation**: Clean PDFs are generated on the server using `pdfkit` and streamed directly to your browser for download.
+### Key Design Patterns
+
+1. **Database Adapter Pattern** — every assessment tool has its own schema, so `backend/adapters/` has one file per project that queries it and normalizes the output into a shared shape the frontend renders generically.
+2. **Role-Based Access Control** — `requireRole()` and `restrictFinanceToSalesOnly()` in `server.js` gate every route; the frontend mirrors the same split in the sidebar, but the backend is the actual enforcement point.
+3. **Background Jobs Need a Persistent Process** — the leads poller, social scheduler, inbound-mention sync, and the BullMQ publish worker all run as long-lived loops started from `server.js`'s `app.listen()` callback. This only works on a host that keeps the process running continuously (e.g. Render) — it does **not** work on Vercel or other serverless platforms, where the process is frozen/killed between requests.
+4. **Encrypted Token Storage** — social account access/refresh tokens are encrypted at rest (AES-256-GCM) using `SOCIAL_TOKEN_ENCRYPTION_KEY` before being stored in Supabase.
 
 ---
 
 ## Getting Started
 
 ### 1. Prerequisite
-Ensure you have [Node.js](https://nodejs.org/) installed (v16+ recommended).
+[Node.js](https://nodejs.org/) v18+ and a local or managed Redis instance (needed for the social publish queue).
 
-### 2. Start the Development Servers
+### 2. Install and configure
+```bash
+npm run install:all
+cp backend/.env.example backend/.env
+# fill in backend/.env — see "Environment Variables" below
+```
+
+### 3. Start the development servers
 From the root project directory:
 ```bash
-# Run both the Backend and Frontend concurrently
 npm run dev
 ```
-
-- **Frontend Application**: Running at [http://localhost:5173](http://localhost:5173)
-- **Backend API Server**: Running at [http://localhost:5000](http://localhost:5000)
+- **Frontend**: [http://localhost:5173](http://localhost:5173)
+- **Backend API**: [http://localhost:5000](http://localhost:5000)
 
 ---
 
-## Connecting Your Live Supabase Databases
+## Environment Variables
 
-### Option A: Via Environment Variables (Recommended)
-Rename `backend/.env.example` to `backend/.env` and paste in your Supabase project URLs and Key strings:
-```env
-SUPABASE_URL_1=https://xxxxxx.supabase.co
-SUPABASE_KEY_1=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-# Repeat for URL_2 to URL_5
+See `backend/.env.example` for the full list with inline setup notes. Broadly:
+
+| Group | Vars |
+|---|---|
+| Assessment DBs | `SUPABASE_URL_1..6`, `SUPABASE_KEY_1..6` |
+| Analytics | `GA4_SERVICE_ACCOUNT_KEY`, `GA4_PROPERTY_ID_1..6` |
+| Social module | `SUPABASE_URL_SOCIAL`, `SUPABASE_KEY_SOCIAL`, `SOCIAL_TOKEN_ENCRYPTION_KEY`, `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `META_APP_ID/SECRET`, `LINKEDIN_CLIENT_ID/SECRET`, `REDIS_URL` |
+| URLs | `BACKEND_PUBLIC_URL`, `FRONTEND_URL` (used to build OAuth redirect URIs) |
+| Leads notifications | `SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`, `LEADS_NOTIFY_EMAIL`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` |
+
+When `BACKEND_PUBLIC_URL` changes (e.g. after deploying), the OAuth redirect URIs built from it must be re-added to the corresponding Google/Meta/LinkedIn app configs — see the comments above each credential block in `.env.example` for the exact URIs each provider needs.
+
+---
+
+## Managing User Accounts & Roles
+
+There's no public self-registration flow for roles beyond `admin`. To create or promote an account:
+```bash
+node backend/scripts/set-user-role.js <email> <admin|finance>
+node backend/scripts/set-user-role.js <email> <admin|finance> --password <password>
 ```
-
-### Option B: Via the Settings Panel
-Open the dashboard browser tab, navigate to **Supabase Settings** in the sidebar, paste the credentials for any database, and click **Connect Database**.
+`--password` creates the account if it doesn't exist, or resets an existing one's password. Takes effect immediately — no restart or re-login required.
 
 ---
 
-## Customizing Database Table & Column Queries
+## Maintenance Scripts
 
-Since your Supabase databases already store data, you can match our queries to your schemas. 
+All under `backend/scripts/`, run with `node backend/scripts/<name>.js`:
 
-1. Open the database adapter for the specific tool (e.g. [db1.js](file:///c:/Users/Dell/OneDrive%20-%20Infopace%20Management%20Pvt.%20Ltd/Desktop/Dashboard/backend/adapters/db1.js)).
-2. Edit the constant fields at the top to match your tables and columns:
-   ```javascript
-   const TABLES = {
-     CANDIDATES: 'your_user_table',
-     ANSWERS: 'your_answers_table'
-   };
-   
-   const COLS = {
-     CANDIDATE_ID: 'user_id_column',
-     CANDIDATE_NAME: 'full_name',
-     // ...
-   };
-   ```
-3. Update the query inside `getCandidates` and `getCandidateDetails` to fit your table relationships (e.g., joins, column structures). The backend will automatically output standard JSON formats which the frontend will render beautifully.
+- `set-user-role.js` — create/promote accounts (see above)
+- `backfill-lead-notification-digest.js` — sends one digest email for any leads whose internal notification hasn't gone out yet (`--dry-run` to preview). Also reachable over HTTP as `POST /api/leads/notify-pending` (finance/admin only) for hosts without Shell access.
+- `backfill-lead-fields.js` — one-off data backfill for lead records
+- `register-whatsapp-number.js`, `check-whatsapp-subscription.js`, `subscribe-whatsapp-webhook.js`, `diagnose-whatsapp-waba.js` — WhatsApp Cloud API setup/diagnostics (see `backend/social/adapters/whatsapp.js`)
+
+---
+
+## Deployment
+
+**Backend** needs a host that runs a persistent Node process (Render, Railway, Fly.io — not Vercel/serverless), because of the background jobs described above. It also needs a reachable Redis instance for the publish queue.
+
+**Frontend** is a static Vite build (`npm run build` → `dist/`) and can be hosted anywhere static, including Vercel. It reads the backend's URL from `VITE_API_BASE` at build time — set this in your hosting provider's environment variables, no `/api` suffix.
+
+After deploying the backend, update `BACKEND_PUBLIC_URL` (and OAuth redirect URIs, per the table above) and the frontend's `FRONTEND_URL` to match.
