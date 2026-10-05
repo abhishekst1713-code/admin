@@ -10,6 +10,7 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const { getSocialClient } = require('../social/db');
 const { listUsers } = require('../lib/users');
+const { sendPendingDigest } = require('../leads/digest');
 
 const router = express.Router();
 
@@ -266,6 +267,21 @@ router.patch('/leads/:id', async (req, res) => {
 // anyone else would hand it to someone who can't see it.
 router.get('/leads/team', (req, res) => {
   res.json({ users: listUsers().filter(u => u.role === 'finance' || u.role === 'admin') });
+});
+
+// Manually trigger the same digest send as
+// scripts/backfill-lead-notification-digest.js — exists as an HTTP route
+// (rather than only a CLI script) so it's reachable on hosts without
+// Shell access, like Render's free tier. Already behind this router's
+// requireRole('finance', 'admin') gate (server.js), same as every other
+// /leads route.
+router.post('/leads/notify-pending', async (req, res) => {
+  try {
+    const result = await sendPendingDigest({ dryRun: req.query.dryRun === 'true' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
