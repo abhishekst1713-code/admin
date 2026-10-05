@@ -7,6 +7,7 @@
  */
 
 const express = require('express');
+const net = require('net');
 const ExcelJS = require('exceljs');
 const { getSocialClient } = require('../social/db');
 const { listUsers } = require('../lib/users');
@@ -283,6 +284,45 @@ router.post('/leads/notify-pending', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// TEMPORARY diagnostic — admin-only. Raw TCP connect tests (no SMTP auth,
+// just "can a socket even open") against a handful of SMTP hosts/ports
+// plus one HTTPS control, to tell apart "Render blocks outbound SMTP
+// entirely" from "Office365 specifically blocks/drops connections from
+// Render's IP range" (a documented Microsoft 365 anti-abuse pattern
+// against shared cloud-hosting IPs). Remove once SMTP is sorted out.
+function tcpCheck(host, port, timeoutMs = 6000) {
+  return new Promise(resolve => {
+    const start = Date.now();
+    const socket = net.createConnection({ host, port });
+    const finish = (ok, detail) => {
+      socket.destroy();
+      resolve({ host, port, ok, ms: Date.now() - start, detail });
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true, 'connected'));
+    socket.once('timeout', () => finish(false, 'timeout'));
+    socket.once('error', err => finish(false, err.code || err.message));
+  });
+}
+
+router.get('/leads/network-check', async (req, res) => {
+  const user = listUsers().find(u => u.id === req.user.id);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin only.', code: 'FORBIDDEN_ROLE' });
+  }
+
+  const targets = [
+    ['smtp.office365.com', 587],
+    ['smtp.office365.com', 465],
+    ['smtp.gmail.com', 587],
+    ['smtp-relay.brevo.com', 587],
+    ['google.com', 443] // control: confirms outbound networking works at all
+  ];
+
+  const results = await Promise.all(targets.map(([host, port]) => tcpCheck(host, port)));
+  res.json({ results });
 });
 
 // Admin-only: sends the real per-lead "New lead: ..." email (the exact
