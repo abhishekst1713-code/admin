@@ -1,12 +1,41 @@
 # Admin Panel
 
-A unified dashboard that brings together three things Infopace runs separately:
+A unified dashboard that brings together three things Infopace runs separately: assessment reporting, social media management, and sales/leads CRM.
 
-1. **Assessment reporting** — aggregates candidate data, test responses, and PDF/Excel report exports across 6 separate Supabase (PostgreSQL) assessment databases.
-2. **Social media management** — connect YouTube, Google Business Profile, Facebook, Instagram, LinkedIn, and WhatsApp accounts; schedule and publish posts; a unified inbox for mentions/DMs; engagement analytics.
-3. **Sales / Leads (CRM)** — captures Meta Lead Ads submissions automatically, emails internal notifications + an acknowledgement to the lead, and gives the sales team a pipeline dashboard to work from.
+Access is role-based: **admin** sees everything below; **finance** is scoped to the Sales module only (see "Managing User Accounts & Roles").
 
-Access is role-based: **admin** sees everything; **finance** is scoped to the Sales module only.
+---
+
+## Features
+
+### Main Dashboard (assessment reporting)
+- **Overview** — cross-tool landing page: connection status for all 6 assessment databases, summary stats, and a condensed version of the Analytics charts.
+- **Analytics** — cross-tool signals: health checks, alerts, and report-generation monitoring across every connected database.
+- **Tool Performance** — per-tool scoring/attempt breakdowns.
+- **Weekly Review** — a rolled-up activity digest across tools.
+- **Supabase Settings** — connect/reconfigure any of the 6 database projects' URL + key directly from the UI, without editing `.env` (see "Connecting Your Live Supabase Databases").
+- **Tool Categories** — an accordion grouping all 6 assessment tools by category (currently "AI Assessment" and "Psychometric"); expanding a tool opens its candidate list, individual report view, and PDF export.
+
+### Social (`social-*` views)
+- **Dashboard** — rolled-up KPI landing page across every connected platform.
+- **Compose** — a three-panel editor/publishing/preview layout for creating and scheduling a post to one or more connected accounts at once.
+- **Posts** — scheduled and published posts, as Scheduled/Published sub-tabs, with quick actions (edit, cancel, duplicate).
+- **Inbox** — a unified view over mentions and direct messages across platforms, with per-platform column and assignee dropdown for routing conversations to a team member.
+- **Analytics** — a channel-card grid with engagement charts (followers, reach, engagement) per connected account — Phase 4's "Brand Health" view.
+- **Connect Accounts** — OAuth connect/disconnect flow for YouTube, Google Business Profile, Facebook, Instagram, LinkedIn, and WhatsApp (Cloud API). Tokens are encrypted at rest (AES-256-GCM).
+- Scheduled posts publish via a BullMQ + Redis queue — one job per (post, target account), so a post targeting three accounts retries/fails/succeeds independently per platform.
+
+### Sales (`leads-*` views) — finance + admin only
+- **Dashboard** — a CRM-style view: sales funnel, leads-over-time chart, and pipeline summary.
+- **All Leads** — a filterable/searchable table (status, campaign, assignee, free-text search) with a lead details drawer, status pipeline (New → Contacted → Qualified → Proposal → Won/Lost), and assignment to any finance or admin team member.
+- **Excel export** — exports whatever filters are currently applied to the table, with an optional date-range picker (blank = all time).
+- **Automatic lead capture** — polls connected Facebook accounts' Meta Lead Ads forms every 5 minutes, inserts genuinely new leads (deduped by `leadgen_id`), and fires two independent emails per lead: an internal "New lead" alert to everyone in `LEADS_NOTIFY_EMAIL`, and a short acknowledgement straight to the person who submitted the form.
+- **Notification digest** — a catch-up tool (CLI script or `POST /api/leads/notify-pending`) that sends one summary email for any leads whose internal notification didn't go out, rather than one email per lead.
+
+### Authentication & Roles
+- Email/password login, JWT-based sessions.
+- Two roles: **admin** (everything) and **finance** (Sales module only, enforced both in the sidebar and on the backend via `restrictFinanceToSalesOnly`/`requireRole`).
+- Role changes take effect on the user's next request — no restart or re-login required.
 
 ## Project Architecture
 
