@@ -8,6 +8,23 @@ A unified dashboard that brings together three things Infopace runs separately:
 
 Access is role-based: **admin** sees everything; **finance** is scoped to the Sales module only.
 
+---
+
+## Assessment Tools
+
+Each of the 6 connected Supabase databases is a separate assessment tool, normalized by its adapter in `backend/adapters/` into a common candidate/score shape the frontend renders generically.
+
+| Adapter | Tool | Category | What it measures |
+|---|---|---|---|
+| `db1.js` | Creative and Innovation | AI Assessment | Divergent thinking, creative problem-solving capability, and organizational innovation style. |
+| `db2.js` | Founder and Co-founder Compatibility | AI Assessment | Core values, management alignment, risk styles, and working habits between co-founders. |
+| `db3.js` | Market Research | AI Assessment | Total addressable market (TAM), competitor landscape, pricing strategies, and growth drivers for candidate businesses. |
+| `db4.js` | Market Potential | AI Assessment | Market sizing (TAM/SAM/SOM), product-market fit, risk profiles, and business model feasibility for startup submissions. |
+| `db5.js` | Venture Risk Assessment | AI Assessment | Operational, financial, cyber, strategic, and compliance risks — calculates domain stress scores and flags potential crisis areas. |
+| `db6.js` | Personality | Psychometric | Personality assessment for leadership positions. |
+
+Adding a 7th tool means creating `db7.js` following the same adapter pattern (see "Customizing Database Table & Column Queries" below) and declaring its own `metadata.category` — a new category shows up in the sidebar's Tool Categories accordion automatically, no frontend changes needed.
+
 ## Project Architecture
 
 ```
@@ -89,6 +106,28 @@ See `backend/.env.example` for the full list with inline setup notes. Broadly:
 | Leads notifications | `SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`, `LEADS_NOTIFY_EMAIL`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` |
 
 When `BACKEND_PUBLIC_URL` changes (e.g. after deploying), the OAuth redirect URIs built from it must be re-added to the corresponding Google/Meta/LinkedIn app configs — see the comments above each credential block in `.env.example` for the exact URIs each provider needs.
+
+---
+
+## Customizing Database Table & Column Queries
+
+Each assessment tool's adapter queries whatever tables that tool's own Supabase project actually has, so a new or restructured tool needs its adapter's query targets updated to match.
+
+1. Open the adapter for that tool (e.g. `backend/adapters/db1.js`).
+2. Edit the constants at the top to match your tables and columns:
+   ```javascript
+   const TABLES = {
+     CANDIDATES: 'your_user_table',
+     ANSWERS: 'your_answers_table'
+   };
+
+   const COLS = {
+     CANDIDATE_ID: 'user_id_column',
+     CANDIDATE_NAME: 'full_name',
+     // ...
+   };
+   ```
+3. Update the queries inside `getCandidates` and `getCandidateDetails` to fit your table relationships (joins, column structures). The adapter's `metadata` block (`name`, `category`, `description` — see the Assessment Tools table above) controls how it's labeled in the sidebar; the backend outputs a standard JSON shape regardless of the underlying schema, so the frontend renders any adapter the same way.
 
 ---
 
