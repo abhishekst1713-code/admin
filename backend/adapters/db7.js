@@ -941,7 +941,11 @@ module.exports = {
     candidateColumns: {
       name: 'User & Deck',
       score: 'Deck Status',
-      status: 'Payment'
+      status: 'Payment',
+      // There is no transcript to export for a deck record, so the
+      // table's Action column (a per-row PDF button) is dropped too.
+      showPdf: false,
+      subtitle: 'Deck projects, their generation status, and what each user paid.'
     },
     // Detail-drawer overrides. This tool has no questions, no answers
     // and no marks, so the drawer drops the score block, the PDF button

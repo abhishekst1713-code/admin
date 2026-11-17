@@ -2956,7 +2956,7 @@ function App() {
             <div className="header-container">
               <div className="title-area">
                 <h1>{assessmentName}</h1>
-                <p>Browsing and managing database answers and scoring records.</p>
+                <p>{candidateColumns?.subtitle || 'Browsing and managing database answers and scoring records.'}</p>
               </div>
               <div className="mode-badge-wrap" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                 <span className={`mode-badge ${assessmentMode === 'live' ? 'live' : 'mock'}`}>
@@ -3004,13 +3004,13 @@ function App() {
                         <th>{candidateColumns?.testDate || 'Submitted'}</th>
                         <th>{candidateColumns?.score || 'Score'}</th>
                         <th>{candidateColumns?.status || 'Status'}</th>
-                        <th>Action</th>
+                        {candidateColumns?.showPdf !== false && <th>Action</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {filteredCandidates.length === 0 ? (
                         <tr>
-                          <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                          <td colSpan={candidateColumns?.showPdf === false ? 5 : 6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                             No candidates found matching filter criteria.
                           </td>
                         </tr>
@@ -3056,18 +3056,20 @@ function App() {
                                   </span>
                                 )}
                               </td>
-                              <td>
-                                <button
-                                  className="btn btn-secondary btn-sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    downloadPdf(c.id, c.name);
-                                  }}
-                                  disabled={pdfLoading}
-                                >
-                                  <Download size={14} /> PDF
-                                </button>
-                              </td>
+                              {candidateColumns?.showPdf !== false && (
+                                <td>
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      downloadPdf(c.id, c.name);
+                                    }}
+                                    disabled={pdfLoading}
+                                  >
+                                    <Download size={14} /> PDF
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })
