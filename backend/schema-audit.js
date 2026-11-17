@@ -38,7 +38,13 @@ const TOOLS = [
     { dbId: 'db3', name: 'Market Research', table: 'research_submissions' },
     { dbId: 'db4', name: 'Market Potential', table: 'submissions' },
     { dbId: 'db5', name: 'Venture Risk Assessment', table: 'assessments' },
-    { dbId: 'db6', name: 'Personality', table: 'submissions' }
+    // db6 disabled in server.js — "submissions" is not the real table name.
+    // { dbId: 'db6', name: 'Personality', table: 'submissions' },
+    // db7 is not an assessment: its main table is projects (one row per
+    // deck), joined to users. Audited live 2026-11-17 — the anon key sees
+    // 0 rows in all of users/projects/jobs/subscriptions, so this will
+    // report "empty" until a service_role key is used (or data exists).
+    { dbId: 'db7', name: 'Pitch Deck Builder', table: 'projects' }
 ];
 
 // Keyword groups used to fuzzy-match column names to each capability.
@@ -165,7 +171,7 @@ async function auditTool({ dbId, name, table }) {
 }
 
 async function main() {
-    console.log(`Running schema audit across all ${TOOLS.length} assessment tools...`);
+    console.log(`Running schema audit across all ${TOOLS.length} tools...`);
     const results = [];
     for (const tool of TOOLS) {
         results.push(await auditTool(tool));

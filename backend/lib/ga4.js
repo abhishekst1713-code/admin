@@ -23,7 +23,7 @@
  *      per data stream) and a GCP service account with Viewer access to
  *      each property.
  *   3. Set GA4_SERVICE_ACCOUNT_KEY (the service account's JSON key,
- *      stringified) and GA4_PROPERTY_ID_1..GA4_PROPERTY_ID_6 in .env.
+ *      stringified) and GA4_PROPERTY_ID_1..GA4_PROPERTY_ID_7 in .env.
  *   4. Optionally fire a custom "assessment_started" GA4 event from each
  *      site so landingConversionRate below can be real instead of null —
  *      without it, GA4 only tells us sessions/users/bounce, not how many

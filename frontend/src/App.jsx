@@ -1197,7 +1197,7 @@ function App() {
   const [authSuccess, setAuthSuccess] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Navigation State: 'overview', 'analytics', 'db1'-'db5', 'settings'
+  // Navigation State: 'overview', 'analytics', 'db1'-'db7', 'settings'
   const [currentView, setCurrentView] = useState('overview');
   const [dbStatuses, setDbStatuses] = useState(null);
   const [overviewData, setOverviewData] = useState([]);
@@ -1244,6 +1244,8 @@ function App() {
   const [candidates, setCandidates] = useState([]);
   const [assessmentName, setAssessmentName] = useState('');
   const [assessmentMode, setAssessmentMode] = useState('mock');
+  // Per-tool header overrides for the record table (null = defaults).
+  const [candidateColumns, setCandidateColumns] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Organization / User / Dimension monitoring for the selected tool
@@ -1265,7 +1267,8 @@ function App() {
     db3: { url: '', key: '' },
     db4: { url: '', key: '' },
     db5: { url: '', key: '' },
-    db6: { url: '', key: '' }
+    // db6 disabled in backend/server.js (missing table) — re-add when re-enabled
+    db7: { url: '', key: '' }
   });
 
   const [loading, setLoading] = useState(true);
@@ -1617,6 +1620,7 @@ function App() {
           setCandidates(data.candidates || []);
           setAssessmentName(data.assessmentName || 'Assessment Tool');
           setAssessmentMode(data.mode || 'mock');
+          setCandidateColumns(data.columns || null);
         } catch (err) {
           console.error(err);
         } finally {
@@ -1716,7 +1720,8 @@ function App() {
         db3: { url: '', key: '' },
         db4: { url: '', key: '' },
         db5: { url: '', key: '' },
-        db6: { url: '', key: '' }
+        // db6 disabled in backend/server.js (missing table)
+        db7: { url: '', key: '' }
       });
       setSaveMessages({});
       loadInitialData();
@@ -2602,6 +2607,131 @@ function App() {
                             Unpaid breakdown: {paymentData.unpaidBreakdown.map(b => `${b.count} ${b.status}`).join(' · ')}
                           </div>
                         )}
+
+                        {/* Subscription billing detail — rendered only for a
+                            tool whose adapter reports a `billing` block (today:
+                            db7 Pitch Deck Builder, which is Stripe
+                            subscriptions rather than per-assessment payments). */}
+                        {paymentData.billing && (
+                          <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                              <CreditCard size={15} />
+                              <strong style={{ fontSize: '0.9rem' }}>
+                                {paymentData.billing.provider} {paymentData.billing.model} billing
+                              </strong>
+                              <span className="mode-badge mock" style={{ fontSize: '0.65rem' }}>
+                                {paymentData.billing.subscriptionRows} subscription {paymentData.billing.subscriptionRows === 1 ? 'row' : 'rows'}
+                              </span>
+                            </div>
+
+                            {/* Razorpay one-off payments — the only money
+                                this database actually records. Shown only
+                                when the payments table was readable. */}
+                            {paymentData.billing.revenueAvailable && (
+                              <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+                                <KpiCard icon={FileCheck2} gradient={KPI_GRADIENTS[0]} label="Razorpay revenue"
+                                  value={`₹${(paymentData.billing.totalRevenueInr || 0).toLocaleString('en-IN')}`}
+                                  sub={`${paymentData.billing.razorpayPayments} payments captured`} />
+                                <KpiCard icon={Calendar} gradient={KPI_GRADIENTS[1]} label="Last 30 days"
+                                  value={`₹${(paymentData.billing.revenueLast30dInr || 0).toLocaleString('en-IN')}`}
+                                  sub="Rolling window" />
+                                <KpiCard icon={Check} gradient={KPI_GRADIENTS[2]} label="Paying customers"
+                                  value={paymentData.billing.razorpayPayers}
+                                  sub={`of ${paymentData.billing.totalUsers} users`} />
+                                <KpiCard icon={AlertCircle} gradient={KPI_GRADIENTS[3]} label="Avg payment"
+                                  value={`₹${(paymentData.billing.averagePaymentInr || 0).toLocaleString('en-IN')}`}
+                                  sub="Per captured payment" />
+                              </div>
+                            )}
+
+                            {/* Razorpay checkout funnel — orders opened vs paid.
+                                Abandoned orders are named people who reached the
+                                payment page and left, so they are chaseable. */}
+                            {paymentData.billing.checkoutFunnelAvailable && paymentData.billing.ordersCreated > 0 && (
+                              <div style={{
+                                marginBottom: '1rem', padding: '0.85rem 1rem', borderRadius: '10px',
+                                background: 'var(--surface-muted, rgba(148,163,184,0.08))',
+                                border: '1px solid var(--border, rgba(148,163,184,0.25))'
+                              }}>
+                                <div style={{ fontWeight: 700, marginBottom: '0.45rem', fontSize: '0.9rem' }}>
+                                  Razorpay checkout funnel
+                                </div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                  <strong>{paymentData.billing.ordersCreated}</strong> orders opened →{' '}
+                                  <strong>{paymentData.billing.ordersPaid}</strong> paid{' '}
+                                  ({paymentData.billing.checkoutConversionRate}% conversion)
+                                </div>
+                                {paymentData.billing.ordersAbandoned > 0 && (
+                                  <div style={{ marginTop: '0.4rem', fontSize: '0.85rem', color: '#d97706', fontWeight: 600 }}>
+                                    {paymentData.billing.ordersAbandoned} abandoned at the payment page —{' '}
+                                    {`₹${(paymentData.billing.abandonedValueInr || 0).toLocaleString('en-IN')}`} of unconverted intent
+                                    {paymentData.billing.abandonedByDeckType && paymentData.billing.abandonedByDeckType.length > 0 && (
+                                      <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>
+                                        {' '}({paymentData.billing.abandonedByDeckType.map(d => `${d.deckType}: ${d.count}`).join(', ')})
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+                              <KpiCard icon={Check} gradient={KPI_GRADIENTS[2]} label="Active subscribers"
+                                value={paymentData.billing.activeSubscribers}
+                                sub={`of ${paymentData.billing.totalUsers} users`} />
+                              <KpiCard icon={FileCheck2} gradient={KPI_GRADIENTS[1]} label="On trial"
+                                value={paymentData.billing.trialingSubscribers}
+                                sub="No money moved yet" />
+                              <KpiCard icon={AlertCircle} gradient={KPI_GRADIENTS[3]} label="Canceled"
+                                value={paymentData.billing.canceledSubscriptions}
+                                sub={`${paymentData.billing.pastDueSubscriptions} past due`} />
+                              <KpiCard icon={Calendar} gradient={KPI_GRADIENTS[0]} label="Renews in 30d"
+                                value={paymentData.billing.renewalsNext30d}
+                                sub={`${paymentData.billing.checkoutReach} reached checkout`} />
+                            </div>
+
+                            {paymentData.billing.planBreakdown && paymentData.billing.planBreakdown.length > 0 && (
+                              <div style={{ overflowX: 'auto' }}>
+                                <table className="data-table" style={{ fontSize: '0.82rem' }}>
+                                  <thead>
+                                    <tr>
+                                      <th>Plan</th>
+                                      <th style={{ textAlign: 'right' }}>Subscriptions</th>
+                                      <th style={{ textAlign: 'right' }}>Paying</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {paymentData.billing.planBreakdown.map(p => (
+                                      <tr key={p.plan}>
+                                        <td style={{ fontWeight: 600 }}>{p.plan}</td>
+                                        <td style={{ textAlign: 'right' }}>{p.count}</td>
+                                        <td style={{ textAlign: 'right' }}>{p.payingCount}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+
+                            {paymentData.billing.statusBreakdown && paymentData.billing.statusBreakdown.length > 0 && (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.9rem' }}>
+                                Subscription statuses: {paymentData.billing.statusBreakdown.map(s => `${s.count} ${s.status}`).join(' · ')}
+                              </div>
+                            )}
+
+                            {paymentData.billing.lapsedPeriod > 0 && (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--accent-danger)', marginTop: '0.6rem' }}>
+                                {paymentData.billing.lapsedPeriod} subscription{paymentData.billing.lapsedPeriod === 1 ? '' : 's'} still marked paying but past the billing period end — likely a Stripe webhook that never arrived.
+                              </div>
+                            )}
+
+                            {!paymentData.billing.revenueAvailable && (
+                              <p className="panel-note" style={{ marginTop: '0.9rem' }}>
+                                {paymentData.billing.revenueNote}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2820,7 +2950,7 @@ function App() {
           </div>
         )}
 
-        {/* VIEW: ASSESSMENT DATABASE VIEWS (db1 - db5) */}
+        {/* VIEW: PER-TOOL DATABASE VIEWS (db1 - db7) */}
         {currentView.startsWith('db') && (
           <div>
             <div className="header-container">
@@ -2869,11 +2999,11 @@ function App() {
                   <table className="custom-table custom-table-compact">
                     <thead>
                       <tr>
-                        <th>Candidate</th>
+                        <th>{candidateColumns?.name || 'Candidate'}</th>
                         <th>Contact</th>
-                        <th>Submitted</th>
-                        <th>Score</th>
-                        <th>Status</th>
+                        <th>{candidateColumns?.testDate || 'Submitted'}</th>
+                        <th>{candidateColumns?.score || 'Score'}</th>
+                        <th>{candidateColumns?.status || 'Status'}</th>
                         <th>Action</th>
                       </tr>
                     </thead>
@@ -2911,12 +3041,20 @@ function App() {
                                 </div>
                               </td>
                               <td style={{ fontWeight: '700' }}>
-                                {c.score} / {c.maxScore}
+                                {/* Tools with no real score (e.g. the deck
+                                    builder) send a label instead of a number. */}
+                                {c.scoreLabel ? c.scoreLabel : `${c.score} / ${c.maxScore}`}
                               </td>
                               <td>
-                                <span className={`score-badge ${scoreClass}`}>
-                                  {scorePct}% {scoreClass === 'high' ? 'Passed' : scoreClass === 'medium' ? 'Fair' : 'Review'}
-                                </span>
+                                {c.statusLabel ? (
+                                  <span className={`score-badge ${c.statusTone || 'low'}`}>
+                                    {c.statusLabel}
+                                  </span>
+                                ) : (
+                                  <span className={`score-badge ${scoreClass}`}>
+                                    {scorePct}% {scoreClass === 'high' ? 'Passed' : scoreClass === 'medium' ? 'Fair' : 'Review'}
+                                  </span>
+                                )}
                               </td>
                               <td>
                                 <button
@@ -3070,7 +3208,7 @@ function App() {
             <div className="header-container">
               <div className="title-area">
                 <h1>Supabase Connection Manager</h1>
-                <p>Provide API keys to dynamically link this portal to your 5 live Supabase projects.</p>
+                <p>Provide API keys to dynamically link this portal to your live Supabase projects.</p>
               </div>
               <button className="btn btn-secondary btn-sm" onClick={resetAllConfigs}>
                 Reset to Defaults
@@ -3093,7 +3231,7 @@ function App() {
                       type="text"
                       className="form-control"
                       placeholder="https://xxxxxx.supabase.co"
-                      value={configForms[dbId].url}
+                      value={configForms[dbId]?.url || ''}
                       onChange={(e) => handleConfigChange(dbId, 'url', e.target.value)}
                     />
                   </div>
@@ -3104,7 +3242,7 @@ function App() {
                       type="password"
                       className="form-control"
                       placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                      value={configForms[dbId].key}
+                      value={configForms[dbId]?.key || ''}
                       onChange={(e) => handleConfigChange(dbId, 'key', e.target.value)}
                     />
                   </div>

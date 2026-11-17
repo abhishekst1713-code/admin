@@ -41,7 +41,7 @@ Access is role-based: **admin** sees everything below; **finance** is scoped to 
 
 ```
 ├── backend/
-│   ├── adapters/          # One file per assessment DB (db1.js–db6.js), each
+│   ├── adapters/          # One file per source DB (db1.js–db7.js), each
 │   │                       mapping that project's schema to a common shape
 │   ├── social/
 │   │   ├── adapters/      # One file per platform (youtube, google-business,
