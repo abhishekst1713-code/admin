@@ -23,6 +23,14 @@ const email = require('../lib/email');
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // leads are time-sensitive for sales follow-up — tighter than the 10 min mentions/inbox cadence
 let intervalHandle = null;
+// setInterval fires on a fixed clock regardless of whether the previous
+// sweep finished. retryPendingNotifications is serial over up to 200
+// leads, and a dead mail transport costs a full connect timeout per
+// send, so a sweep can easily outlast the 5 min interval and stack
+// overlapping copies of itself — each re-sending the same pending
+// leads. One sweep at a time; a tick that lands mid-sweep is dropped,
+// since the next one is only 5 min out anyway.
+let sweeping = false;
 
 // Guards against non-address junk ending up in the email field (e.g. a
 // test submission with placeholder text) — without this, sendMail's "No
@@ -44,7 +52,10 @@ function formatFieldData(fieldData) {
 // Pulls the display name/domain straight out of EMAIL_FROM so there's no
 // separate "company name" env var to keep in sync.
 function getSenderIdentity() {
-  const raw = process.env.EMAIL_FROM || process.env.SMTP_USER || '';
+  // Same precedence lib/email.js uses to pick the sending mailbox, so the
+  // name/domain quoted in the body can't drift from the address the mail
+  // actually comes from.
+  const raw = process.env.EMAIL_FROM || process.env.MS_GRAPH_SENDER || process.env.SMTP_USER || '';
   const match = raw.match(/^(.*?)<(.+@(.+))>$/);
   if (match) return { name: match[1].trim() || 'Infopace', domain: match[3].trim() };
   const domain = raw.includes('@') ? raw.split('@')[1] : 'infopaceindia.com';
@@ -121,7 +132,17 @@ async function notifyLeadSubmitter(lead) {
     `</div>`
   ].join('');
 
-  await email.sendMail({ to: lead.email, subject, text, html, replyTo: process.env.EMAIL_FROM || process.env.SMTP_USER });
+  // LEADS_ACK_CC copies an internal address on every acknowledgement
+  // that goes back to a lead, so that team sees the enquiry as it lands
+  // without waiting for the sales handover. Comma-separate for several.
+  // NOTE: this is a visible CC — the lead sees the address and a Reply
+  // All reaches it. Switch to BCC if it should stay hidden from them.
+  await email.sendMail({
+    to: lead.email,
+    cc: process.env.LEADS_ACK_CC || '',
+    subject, text, html,
+    replyTo: process.env.EMAIL_FROM || process.env.MS_GRAPH_SENDER || process.env.SMTP_USER
+  });
   return true;
 }
 
@@ -249,28 +270,42 @@ async function sweep() {
   const client = getSocialClient();
   if (!client) return; // social project not configured — nothing to poll yet
 
-  const { data: accounts, error } = await client
-    .from('social_accounts')
-    .select('id, platform')
-    .eq('platform', 'facebook')
-    .eq('status', 'active');
-  if (error) {
-    console.error('[leads/poller] Could not list active Facebook accounts:', error.message);
+  if (sweeping) {
+    console.warn('[leads/poller] Previous sweep still running — skipping this tick.');
     return;
   }
+  sweeping = true;
 
-  for (const row of accounts || []) {
-    await pollAccount(client, row).catch(err => console.error(`[leads/poller] Unexpected failure polling account ${row.id}:`, err.message));
+  try {
+    const { data: accounts, error } = await client
+      .from('social_accounts')
+      .select('id, platform')
+      .eq('platform', 'facebook')
+      .eq('status', 'active');
+    if (error) {
+      console.error('[leads/poller] Could not list active Facebook accounts:', error.message);
+      return;
+    }
+
+    for (const row of accounts || []) {
+      await pollAccount(client, row).catch(err => console.error(`[leads/poller] Unexpected failure polling account ${row.id}:`, err.message));
+    }
+
+    await retryPendingNotifications(client).catch(err => console.error('[leads/poller] Retry pass failed:', err.message));
+  } finally {
+    sweeping = false;
   }
-
-  await retryPendingNotifications(client).catch(err => console.error('[leads/poller] Retry pass failed:', err.message));
 }
 
 function start() {
   if (intervalHandle) return;
   intervalHandle = setInterval(() => { sweep().catch(err => console.error('[leads/poller] sweep failed:', err.message)); }, POLL_INTERVAL_MS);
   sweep().catch(err => console.error('[leads/poller] initial sweep failed:', err.message));
-  console.log('[leads/poller] Meta Lead Ads sync started (5 min interval).');
+  // Names the transport up front so "lead emails aren't arriving" can be
+  // diagnosed from the first lines of the deploy log — in particular,
+  // 'smtp' on Render means outbound mail is being dropped by the
+  // platform's SMTP port block and Graph credentials are missing.
+  console.log(`[leads/poller] Meta Lead Ads sync started (5 min interval). Mail transport: ${email.activeTransport()}.`);
 }
 
 function stop() {

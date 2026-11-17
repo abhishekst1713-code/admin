@@ -75,7 +75,7 @@ async function sendPendingDigest({ dryRun = false } = {}) {
 
   const recipients = (process.env.LEADS_NOTIFY_EMAIL || '').split(',').map(s => s.trim()).filter(Boolean);
   if (recipients.length === 0) throw new Error('LEADS_NOTIFY_EMAIL is not set — nothing to send to.');
-  if (!email.isConfigured()) throw new Error('SMTP is not configured (SMTP_HOST/SMTP_USER/SMTP_PASS).');
+  if (!email.isConfigured()) throw new Error('No mail transport is configured (set MS_GRAPH_TENANT_ID/MS_GRAPH_CLIENT_ID/MS_GRAPH_CLIENT_SECRET, or SMTP_HOST/SMTP_USER/SMTP_PASS).');
 
   const { data: leads, error } = await client
     .from('leads')

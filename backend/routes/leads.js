@@ -7,12 +7,12 @@
  */
 
 const express = require('express');
-const net = require('net');
 const ExcelJS = require('exceljs');
 const { getSocialClient } = require('../social/db');
 const { listUsers } = require('../lib/users');
 const { sendPendingDigest } = require('../leads/digest');
 const { notifyNewLead, notifyLeadSubmitter } = require('../leads/poller');
+const emailTransport = require('../lib/email');
 
 const router = express.Router();
 
@@ -302,11 +302,12 @@ router.post('/leads/:id/send-reply', async (req, res) => {
   try {
     const sent = await notifyLeadSubmitter(lead);
     if (!sent) {
-      // Nothing was actually sent (no valid email / SMTP down) — release
+      // Nothing was actually sent (no valid email / mail transport down)
+      // — release
       // the claim so a later retry (manual or the poller's own sweep)
       // isn't permanently blocked by a flag this request itself set.
       await client.from('leads').update({ lead_ack_sent: false }).eq('id', lead.id);
-      return res.status(400).json({ error: 'Could not send — this lead has no valid email address, or SMTP is not configured.' });
+      return res.status(400).json({ error: 'Could not send — this lead has no valid email address, or no mail transport is configured.' });
     }
     res.json({ lead: claimed });
   } catch (err) {
@@ -338,47 +339,29 @@ router.post('/leads/notify-pending', async (req, res) => {
   }
 });
 
-// TEMPORARY diagnostic — admin-only. Raw TCP connect tests (no SMTP auth,
-// just "can a socket even open") against a handful of SMTP hosts/ports
-// plus one HTTPS control, to tell apart "Render blocks outbound SMTP
-// entirely" from "Office365 specifically blocks/drops connections from
-// Render's IP range" (a documented Microsoft 365 anti-abuse pattern
-// against shared cloud-hosting IPs). Remove once SMTP is sorted out.
-function tcpCheck(host, port, timeoutMs = 6000) {
-  return new Promise(resolve => {
-    const start = Date.now();
-    const socket = net.createConnection({ host, port });
-    const finish = (ok, detail) => {
-      socket.destroy();
-      resolve({ host, port, ok, ms: Date.now() - start, detail });
-    };
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => finish(true, 'connected'));
-    socket.once('timeout', () => finish(false, 'timeout'));
-    socket.once('error', err => finish(false, err.code || err.message));
-  });
-}
-
-router.get('/leads/network-check', async (req, res) => {
+// Admin-only: reports which mail transport this environment will
+// actually use and proves it can authenticate, without sending anything.
+// Replaces an earlier raw-TCP probe of SMTP hosts/ports, which existed
+// only to confirm that Render's free tier blocks outbound 25/465/587 —
+// settled, and the reason lib/email.js now prefers Microsoft Graph over
+// HTTPS. A 'smtp' transport in the response on Render means the
+// MS_GRAPH_* vars are missing and outbound mail is being dropped.
+router.get('/leads/mail-check', async (req, res) => {
   const user = listUsers().find(u => u.id === req.user.id);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin only.', code: 'FORBIDDEN_ROLE' });
   }
 
-  const targets = [
-    ['smtp.office365.com', 587],
-    ['smtp.office365.com', 465],
-    ['smtp.gmail.com', 587],
-    ['smtp-relay.brevo.com', 587],
-    ['google.com', 443] // control: confirms outbound networking works at all
-  ];
-
-  const results = await Promise.all(targets.map(([host, port]) => tcpCheck(host, port)));
-  res.json({ results });
+  const transport = emailTransport.activeTransport();
+  try {
+    res.json(await emailTransport.verifyTransport());
+  } catch (err) {
+    res.status(500).json({ transport, ok: false, error: err.message });
+  }
 });
 
 // Admin-only: sends the real per-lead "New lead: ..." email (the exact
-// function the Meta Lead Ads poller calls) using sample data, so SMTP/
+// function the Meta Lead Ads poller calls) using sample data, so mail
 // production delivery can be verified on demand without a real Facebook
 // form submission and without writing anything to the leads table. This
 // router is already behind requireRole('finance', 'admin') (server.js),
@@ -404,7 +387,7 @@ router.post('/leads/test-notify', async (req, res) => {
   try {
     const sent = await notifyNewLead(sampleLead);
     if (!sent) {
-      return res.status(500).json({ error: 'notifyNewLead() returned false — LEADS_NOTIFY_EMAIL or SMTP is not configured in this environment.' });
+      return res.status(500).json({ error: 'notifyNewLead() returned false — LEADS_NOTIFY_EMAIL is empty, or no mail transport is configured, in this environment.' });
     }
     res.json({ sent: true, recipients: (process.env.LEADS_NOTIFY_EMAIL || '').split(',').map(s => s.trim()).filter(Boolean) });
   } catch (err) {
@@ -441,7 +424,7 @@ router.post('/leads/test-ack', async (req, res) => {
   try {
     const sent = await notifyLeadSubmitter(sampleLead);
     if (!sent) {
-      return res.status(500).json({ error: 'notifyLeadSubmitter() returned false — check that the email address is valid and SMTP is configured in this environment.' });
+      return res.status(500).json({ error: 'notifyLeadSubmitter() returned false — check that the email address is valid and a mail transport is configured in this environment.' });
     }
     res.json({ sent: true, to: targetEmail });
   } catch (err) {
