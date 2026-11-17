@@ -62,7 +62,6 @@ const { buildRetentionCohort } = require('./_retention');
  *    fallback, never against one guessed literal.
  *  - whether the cost columns hold rupees or lakhs. Rendered as plain
  *    rupees; formatInr below is the one place to change if not.
- *  - the siteUrl in metadata.
  */
 
 const TABLES = {
@@ -617,9 +616,8 @@ module.exports = {
   metadata: {
     name: 'DPR Generator',
     category: 'Product',
-    // UNVERIFIED: no DPR host was discoverable from the Supabase project.
-    // This drives the uptime check in GET /api/health — correct it once
-    // the real domain is known.
+    // Confirmed by the account owner. Drives the uptime check in
+    // GET /api/health.
     siteUrl: 'https://dpr.infopaceindia.com',
     description: 'Detailed Project Report builder for bank loan applications — registered promoters, and the cost and funding breakdown of each DPR they file.',
     candidateColumns: {
