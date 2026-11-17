@@ -44,7 +44,10 @@ const TOOLS = [
     // deck), joined to users. Audited live 2026-11-17 — the anon key sees
     // 0 rows in all of users/projects/jobs/subscriptions, so this will
     // report "empty" until a service_role key is used (or data exists).
-    { dbId: 'db7', name: 'Pitch Deck Builder', table: 'projects' }
+    { dbId: 'db7', name: 'Pitch Deck Builder', table: 'projects' },
+    // db8 likewise: its record list is users (482 rows) rather than
+    // dpr_reports, which is still empty — see adapters/db8.js.
+    { dbId: 'db8', name: 'DPR Generator', table: 'users' }
 ];
 
 // Keyword groups used to fuzzy-match column names to each capability.

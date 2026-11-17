@@ -33,6 +33,7 @@ const db5 = require('./adapters/db5');
 // the real table name is confirmed (see schema-audit.js).
 // const db6 = require('./adapters/db6');
 const db7 = require('./adapters/db7');
+const db8 = require('./adapters/db8');
 const ga4 = require('./lib/ga4');
 
 // Social module (Phase 1: YouTube + Google Business Profile) — kept in
@@ -49,7 +50,7 @@ const socialPollers = require('./social/pollers');
 const leadsRoutes = require('./routes/leads');
 const leadsPoller = require('./leads/poller');
 
-const ADAPTERS = { db1, db2, db3, db4, db5, /* db6, */ db7 };
+const ADAPTERS = { db1, db2, db3, db4, db5, /* db6, */ db7, db8 };
 
 // The one list of tool ids. Everything that used to hardcode
 // ['db1'..'db6'] now reads this, so adding an adapter above is the only

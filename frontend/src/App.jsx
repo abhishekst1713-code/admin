@@ -1268,7 +1268,8 @@ function App() {
     db4: { url: '', key: '' },
     db5: { url: '', key: '' },
     // db6 disabled in backend/server.js (missing table) — re-add when re-enabled
-    db7: { url: '', key: '' }
+    db7: { url: '', key: '' },
+    db8: { url: '', key: '' }
   });
 
   const [loading, setLoading] = useState(true);
@@ -1721,7 +1722,8 @@ function App() {
         db4: { url: '', key: '' },
         db5: { url: '', key: '' },
         // db6 disabled in backend/server.js (missing table)
-        db7: { url: '', key: '' }
+        db7: { url: '', key: '' },
+    db8: { url: '', key: '' }
       });
       setSaveMessages({});
       loadInitialData();
