@@ -3307,7 +3307,7 @@ function App() {
         <div className="details-drawer-overlay" onClick={() => setSelectedCandidate(null)}>
           <div className="details-drawer" onClick={(e) => e.stopPropagation()}>
             <div className="drawer-header">
-              <h2>Assessment Details</h2>
+              <h2>{candidateDetails?.detailView?.title || 'Assessment Details'}</h2>
               <button className="close-btn" onClick={() => setSelectedCandidate(null)}>
                 <X size={24} />
               </button>
@@ -3317,7 +3317,7 @@ function App() {
               {detailsLoading ? (
                 <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                   <RefreshCw className="animate-spin" size={24} style={{ margin: '0 auto 1rem auto', animation: 'spin 1s linear infinite' }} />
-                  Fetching candidate responses...
+                  {candidateDetails?.detailView?.loadingText || 'Fetching candidate responses...'}
                 </div>
               ) : (
                 candidateDetails && (
@@ -3327,23 +3327,37 @@ function App() {
                         <h3>{candidateDetails.personalInfo.name}</h3>
                         <p>{candidateDetails.personalInfo.email}</p>
                         <p style={{ color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                          Taken on {new Date(candidateDetails.personalInfo.testDate).toLocaleString()}
+                          {candidateDetails.detailView?.dateLabel || 'Taken on'}{' '}
+                          {new Date(candidateDetails.personalInfo.testDate).toLocaleString()}
                         </p>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>AGGREGATE SCORE</div>
-                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--accent-success)' }}>
-                          {candidateDetails.personalInfo.score} / {candidateDetails.personalInfo.maxScore}
+                      {/* A score and a PDF transcript only mean something for
+                          the assessment tools. A tool whose adapter sets
+                          showScore/showPdf false (the deck builder) gets
+                          neither, rather than a fabricated 100/100. */}
+                      {(candidateDetails.detailView?.showScore !== false ||
+                        candidateDetails.detailView?.showPdf !== false) && (
+                        <div style={{ textAlign: 'right' }}>
+                          {candidateDetails.detailView?.showScore !== false && (
+                            <>
+                              <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>AGGREGATE SCORE</div>
+                              <div style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--accent-success)' }}>
+                                {candidateDetails.personalInfo.score} / {candidateDetails.personalInfo.maxScore}
+                              </div>
+                            </>
+                          )}
+                          {candidateDetails.detailView?.showPdf !== false && (
+                            <button
+                              className="btn btn-success btn-sm"
+                              style={{ marginTop: '0.5rem' }}
+                              onClick={() => downloadPdf(selectedCandidate.id, selectedCandidate.name)}
+                              disabled={pdfLoading}
+                            >
+                              <Download size={14} /> Download PDF
+                            </button>
+                          )}
                         </div>
-                        <button
-                          className="btn btn-success btn-sm"
-                          style={{ marginTop: '0.5rem' }}
-                          onClick={() => downloadPdf(selectedCandidate.id, selectedCandidate.name)}
-                          disabled={pdfLoading}
-                        >
-                          <Download size={14} /> Download PDF
-                        </button>
-                      </div>
+                      )}
                     </div>
 
                     {candidateDetails.aiProfile && (candidateDetails.aiProfile.profileName || candidateDetails.aiProfile.narrative) && (
@@ -3406,6 +3420,36 @@ function App() {
                       </div>
                     )}
 
+                    {/* Tools that aren't assessments return plain
+                        label/value sections instead of questions, answers
+                        and marks. */}
+                    {candidateDetails.sections ? (
+                      <div className="detail-sections">
+                        {candidateDetails.sections.map((section, si) => (
+                          <div className="detail-section" key={si}>
+                            <h4 className="detail-section-title">{section.title}</h4>
+                            <dl className="detail-field-list">
+                              {section.fields.map((field, fi) => (
+                                <div className="detail-field" key={fi}>
+                                  <dt>{field.label}</dt>
+                                  <dd
+                                    className={[
+                                      field.mono ? 'mono' : '',
+                                      field.tone ? `tone-${field.tone}` : ''
+                                    ].filter(Boolean).join(' ')}
+                                  >
+                                    {field.link ? (
+                                      <a href={field.link} target="_blank" rel="noopener noreferrer">{field.value}</a>
+                                    ) : field.value}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                    <>
                     <h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1rem' }}>Test Questions & Answers</h4>
                     <div className="question-list">
                       {candidateDetails.results.map((item, index) => {
@@ -3425,6 +3469,8 @@ function App() {
                         );
                       })}
                     </div>
+                    </>
+                    )}
                   </div>
                 )
               )}

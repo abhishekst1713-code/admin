@@ -336,7 +336,11 @@ async function getCandidates(supabase) {
 async function getCandidateDetails(supabase, candidateId) {
   const { data: project, error } = await supabase
     .from(TABLES.PROJECTS)
-    .select(PROJECT_SELECT)
+    .select(`
+      id, user_id, name, status, error_message, deck_type, company_url,
+      template_key, created_at, updated_at, deleted_at, is_deleted,
+      users ( id, name, email, role, is_active, is_verified, stripe_customer_id, created_at )
+    `)
     .eq('id', candidateId)
     .single();
 
@@ -344,87 +348,132 @@ async function getCandidateDetails(supabase, candidateId) {
 
   const owner = ownerOf(project);
 
-  // Jobs for this project. Best-effort: a deck with no job rows is a
-  // normal state (never generated), so a failure here must not sink the
-  // whole detail view.
-  let jobs = [];
-  try {
-    const { data, error: jobsErr } = await supabase
-      .from(TABLES.JOBS)
-      .select('id, status, created_at, started_at, completed_at, error, result')
-      .eq('project_id', project.id)
-      .order('created_at', { ascending: false });
-    if (!jobsErr) jobs = data || [];
-  } catch (e) {
-    jobs = [];
-  }
-
-  // Owner's subscription, likewise best-effort — a free user has none.
-  let subscription = null;
-  if (owner.id) {
+  // Everything below the project itself is best-effort: a deck with no
+  // job rows, no presentation or no payment is a perfectly normal state,
+  // so none of those lookups may sink the whole detail view.
+  const tryRows = async (table, build) => {
     try {
-      const { data, error: subErr } = await supabase
-        .from(TABLES.SUBSCRIPTIONS)
-        .select('id, status, plan, stripe_subscription_id, current_period_start, current_period_end, created_at')
-        .eq('user_id', owner.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (!subErr && data && data.length) subscription = data[0];
+      const { data, error: err } = await build(supabase.from(table));
+      return err ? [] : (data || []);
     } catch (e) {
-      subscription = null;
+      return [];
     }
-  }
+  };
+
+  const jobs = await tryRows(TABLES.JOBS, q => q
+    .select('id, status, current_step, total_progress, message, error, created_at, started_at, completed_at')
+    .eq('project_id', project.id)
+    .order('created_at', { ascending: false }));
+
+  const presentations = await tryRows(TABLES.PRESENTATIONS, q => q
+    .select('id, status, format, slide_count, file_size_bytes, file_url, thumbnail_url, created_at')
+    .eq('project_id', project.id)
+    .order('created_at', { ascending: false }));
+
+  const payments = owner.id ? await tryRows(TABLES.PAYMENTS, q => q
+    .select('id, deck_type, amount_inr, razorpay_payment_id, razorpay_order_id, created_at')
+    .eq('user_id', owner.id)
+    .order('created_at', { ascending: false })) : [];
+
+  const credits = owner.id ? await tryRows(TABLES.DECK_CREDITS, q => q
+    .select('id, deck_type, amount_inr, status, razorpay_payment_id, created_at')
+    .eq('user_id', owner.id)
+    .order('created_at', { ascending: false })) : [];
 
   const score = progressScore(project.status);
+  const fmtBytes = b => {
+    const n = Number(b) || 0;
+    if (!n) return 'N/A';
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
-  const jobsAnswer = jobs.length
-    ? jobs.map((job, i) => {
+  const paidTotal = payments.reduce((sum, r) => sum + (Number(r.amount_inr) || 0), 0);
+  const abandoned = credits.filter(c =>
+    String(c.status || '').toLowerCase() !== 'consumed' && !c.razorpay_payment_id);
+
+  // Plain label/value detail sections. This tool is not an assessment --
+  // there are no questions, no answers and no marks -- so it does not use
+  // the question/answer shape the assessment adapters return.
+  const sections = [
+    {
+      title: 'Deck',
+      fields: [
+        { label: 'Name', value: project.name || 'Untitled deck' },
+        { label: 'Deck type', value: project.deck_type || 'N/A' },
+        { label: 'Status', value: `${progressLabel(project.status)}${project.status ? ` (${project.status})` : ''}` },
+        { label: 'Company URL', value: project.company_url || 'N/A' },
+        { label: 'Template', value: project.template_key || 'N/A' },
+        { label: 'Created', value: fmtDate(project.created_at) },
+        { label: 'Last updated', value: fmtDate(project.updated_at) },
+        ...(project.error_message ? [{ label: 'Last error', value: project.error_message, tone: 'danger' }] : []),
+        ...(project.is_deleted ? [{ label: 'Deleted', value: fmtDate(project.deleted_at), tone: 'danger' }] : []),
+        { label: 'Project ID', value: project.id, mono: true }
+      ]
+    },
+    {
+      title: 'Owner',
+      fields: [
+        { label: 'Name', value: owner.name || 'N/A' },
+        { label: 'Email', value: owner.email || 'N/A' },
+        { label: 'Account tier', value: owner.role || 'N/A' },
+        { label: 'Email verified', value: owner.is_verified === true ? 'Yes' : owner.is_verified === false ? 'No' : 'N/A' },
+        { label: 'Account active', value: owner.is_active === false ? 'No' : owner.is_active === true ? 'Yes' : 'N/A' },
+        { label: 'Signed up', value: fmtDate(owner.created_at) },
+        { label: 'User ID', value: owner.id || 'N/A', mono: true }
+      ]
+    },
+    {
+      title: 'Payment',
+      fields: payments.length || abandoned.length ? [
+        {
+          label: 'Total paid',
+          value: formatInr(paidTotal),
+          tone: paidTotal ? 'success' : undefined
+        },
+        { label: 'Payments', value: String(payments.length) },
+        ...payments.map(r => ({
+          label: fmtDate(r.created_at).slice(0, 10),
+          value: `${formatInr(r.amount_inr)} - ${r.deck_type || 'deck'} - ${r.razorpay_payment_id || 'no payment id'}`
+        })),
+        ...(abandoned.length ? [{
+          label: 'Abandoned checkouts',
+          value: `${abandoned.length} order${abandoned.length === 1 ? '' : 's'} opened and never paid (${formatInr(abandoned.reduce((t, c) => t + (Number(c.amount_inr) || 0), 0))})`,
+          tone: 'warning'
+        }] : [])
+      ] : [
+        { label: 'Status', value: 'No payments and no checkout attempts by this user.' }
+      ]
+    },
+    {
+      title: 'Generation jobs',
+      fields: jobs.length ? jobs.map((job, i) => {
         const dur = durationBetween(job.started_at, job.completed_at);
-        const parts = [
-          `Run ${jobs.length - i}: ${job.status || 'no status'} (${progressLabel(job.status)})`,
-          `   Queued:    ${fmtDate(job.created_at)}`,
-          `   Started:   ${fmtDate(job.started_at)}`,
-          `   Completed: ${fmtDate(job.completed_at)}${dur ? `  [took ${dur}]` : ''}`
+        const detail = [
+          `${job.status || 'no status'}${dur ? ` - took ${dur}` : ''}`,
+          `queued ${fmtDate(job.created_at)}`,
+          job.current_step ? `step: ${job.current_step}` : null,
+          job.error ? `error: ${job.error}` : null
+        ].filter(Boolean).join('\n');
+        return {
+          label: `Run ${jobs.length - i}`,
+          value: detail,
+          tone: String(job.status || '').toLowerCase() === 'failed' ? 'danger' : undefined
+        };
+      }) : [{ label: 'Status', value: 'No generation jobs have been run for this deck.' }]
+    },
+    {
+      title: 'Presentation file',
+      fields: presentations.length ? presentations.flatMap((pres, i) => {
+        const prefix = presentations.length > 1 ? `v${presentations.length - i} ` : '';
+        return [
+          { label: `${prefix}Status`, value: `${pres.status || 'N/A'}${pres.format ? ` - ${pres.format}` : ''}` },
+          { label: `${prefix}Slides`, value: pres.slide_count != null ? String(pres.slide_count) : 'N/A' },
+          { label: `${prefix}Size`, value: fmtBytes(pres.file_size_bytes) },
+          { label: `${prefix}Generated`, value: fmtDate(pres.created_at) },
+          ...(pres.file_url ? [{ label: `${prefix}File`, value: pres.file_url, link: pres.file_url }] : [])
         ];
-        if (job.error) parts.push(`   Error: ${job.error}`);
-        return parts.join('\n');
-      }).join('\n\n')
-    : 'No generation jobs have been run for this deck.';
-
-  const results = [
-    {
-      question: 'Deck Project',
-      answer: `Deck: ${project.name || 'Untitled deck'}\nProject ID: ${project.id}\nStatus: ${project.status || 'N/A'}\nCreated: ${fmtDate(project.created_at)}\nLast updated: ${fmtDate(project.updated_at)}`,
-      score: null,
-      maxScore: null
-    },
-    {
-      question: 'Owner',
-      answer: `Name: ${owner.name || 'N/A'}\nEmail: ${owner.email || 'N/A'}\nRole: ${owner.role || 'N/A'}\nAccount active: ${owner.is_active === false ? 'No' : owner.is_active === true ? 'Yes' : 'N/A'}\nUser ID: ${owner.id || 'N/A'}`,
-      score: null,
-      maxScore: null
-    },
-    {
-      // Deliberately not called a score: this project stores no score of
-      // any kind. See the header note on the progress mapping.
-      question: 'Deck Generation Progress',
-      answer: `Stage: ${progressLabel(project.status)}\nRaw status value: ${project.status || 'N/A'}\nProgress figure shown in the table: ${score}/${MAX_SCORE} (pipeline stage, not an assessment score)${project.error_message ? `\nLast error: ${project.error_message}` : ''}`,
-      score: score,
-      maxScore: MAX_SCORE
-    },
-    {
-      question: 'Generation Jobs',
-      answer: jobsAnswer,
-      score: null,
-      maxScore: null
-    },
-    {
-      question: 'Subscription & Billing',
-      answer: subscription
-        ? `Plan: ${subscription.plan || 'N/A'}\nStatus: ${subscription.status || 'N/A'}\nCurrent period: ${fmtDate(subscription.current_period_start)} -> ${fmtDate(subscription.current_period_end)}\nStripe subscription: ${subscription.stripe_subscription_id || 'N/A'}\nStripe customer: ${owner.stripe_customer_id || 'N/A'}`
-        : `No subscription row for this user${owner.stripe_customer_id ? `\nStripe customer: ${owner.stripe_customer_id}` : ''}`,
-      score: null,
-      maxScore: null
+      }) : [{ label: 'Status', value: 'No presentation file has been produced for this deck yet.' }]
     }
   ];
 
@@ -437,11 +486,18 @@ async function getCandidateDetails(supabase, candidateId) {
       score: score,
       maxScore: MAX_SCORE,
       sessionId: String(project.id),
-      // No screenshot/thumbnail column exists in this schema, so the PDF
-      // route falls through to its own rendering path.
+      // No screenshot/thumbnail column on the project itself.
       screenshotUrl: null
     },
-    results
+    sections,
+    // Kept so the PDF route (which expects the question/answer shape)
+    // keeps working even though this tool's drawer hides the button.
+    results: sections.map(sec => ({
+      question: sec.title,
+      answer: sec.fields.map(f => `${f.label}: ${f.value}`).join('\n'),
+      score: null,
+      maxScore: null
+    }))
   };
 }
 
@@ -752,6 +808,59 @@ function getMockCandidateDetails(candidateId) {
   const candidates = getMockCandidates();
   const personalInfo = candidates.find(c => c.id === candidateId) || candidates[0];
 
+  const sections = [
+    {
+      title: 'Deck',
+      fields: [
+        { label: 'Name', value: 'Series A - FinEdge' },
+        { label: 'Deck type', value: 'investor' },
+        { label: 'Status', value: 'Completed (ready)' },
+        { label: 'Company URL', value: 'https://finedge.io' },
+        { label: 'Template', value: 'modern-dark' },
+        { label: 'Created', value: '2026-11-14 09:20 UTC' },
+        { label: 'Last updated', value: '2026-11-14 09:34 UTC' },
+        { label: 'Project ID', value: 'db7-proj-1', mono: true }
+      ]
+    },
+    {
+      title: 'Owner',
+      fields: [
+        { label: 'Name', value: 'Ananya Rao' },
+        { label: 'Email', value: 'ananya@finedge.io' },
+        { label: 'Account tier', value: 'free' },
+        { label: 'Email verified', value: 'Yes' },
+        { label: 'Account active', value: 'Yes' },
+        { label: 'Signed up', value: '2026-10-02 11:10 UTC' },
+        { label: 'User ID', value: '8f2c-mock', mono: true }
+      ]
+    },
+    {
+      title: 'Payment',
+      fields: [
+        { label: 'Total paid', value: '\u20b99,995', tone: 'success' },
+        { label: 'Payments', value: '5' },
+        { label: '2026-11-14', value: '\u20b9699 - investor - pay_mock123' },
+        { label: 'Abandoned checkouts', value: '2 orders opened and never paid (\u20b91,398)', tone: 'warning' }
+      ]
+    },
+    {
+      title: 'Generation jobs',
+      fields: [
+        { label: 'Run 2', value: 'completed - took 3m 48s\nqueued 2026-11-14 09:30 UTC\nstep: render' },
+        { label: 'Run 1', value: 'failed - took 41s\nqueued 2026-11-14 09:22 UTC\nerror: upstream model timeout', tone: 'danger' }
+      ]
+    },
+    {
+      title: 'Presentation file',
+      fields: [
+        { label: 'Status', value: 'ready - pptx' },
+        { label: 'Slides', value: '24' },
+        { label: 'Size', value: '4.2 MB' },
+        { label: 'Generated', value: '2026-11-14 09:34 UTC' }
+      ]
+    }
+  ];
+
   return {
     personalInfo: {
       ...personalInfo,
@@ -759,38 +868,13 @@ function getMockCandidateDetails(candidateId) {
       sessionId: personalInfo.id,
       screenshotUrl: null
     },
-    results: [
-      {
-        question: 'Deck Project',
-        answer: 'Deck: Series A — FinEdge\nProject ID: db7-proj-1\nStatus: completed\nCreated: 2026-11-14 09:20 UTC\nLast updated: 2026-11-14 09:34 UTC',
-        score: null,
-        maxScore: null
-      },
-      {
-        question: 'Owner',
-        answer: 'Name: Ananya Rao\nEmail: ananya@finedge.io\nRole: owner\nAccount active: Yes\nUser ID: 8f2c-mock',
-        score: null,
-        maxScore: null
-      },
-      {
-        question: 'Deck Generation Progress',
-        answer: `Stage: Completed\nRaw status value: completed\nProgress figure shown in the table: ${personalInfo.score}/100 (pipeline stage, not an assessment score)`,
-        score: personalInfo.score,
-        maxScore: 100
-      },
-      {
-        question: 'Generation Jobs',
-        answer: 'Run 2: completed (Completed)\n   Queued:    2026-11-14 09:30 UTC\n   Started:   2026-11-14 09:30 UTC\n   Completed: 2026-11-14 09:34 UTC  [took 3m 48s]\n\nRun 1: failed (Failed)\n   Queued:    2026-11-14 09:22 UTC\n   Started:   2026-11-14 09:22 UTC\n   Completed: 2026-11-14 09:23 UTC  [took 41s]\n   Error: upstream model timeout',
-        score: null,
-        maxScore: null
-      },
-      {
-        question: 'Subscription & Billing',
-        answer: 'Plan: pro\nStatus: active\nCurrent period: 2026-11-01 00:00 UTC -> 2026-12-01 00:00 UTC\nStripe subscription: sub_mock123\nStripe customer: cus_mock123',
-        score: null,
-        maxScore: null
-      }
-    ]
+    sections,
+    results: sections.map(sec => ({
+      question: sec.title,
+      answer: sec.fields.map(f => `${f.label}: ${f.value}`).join('\n'),
+      score: null,
+      maxScore: null
+    }))
   };
 }
 
@@ -858,6 +942,16 @@ module.exports = {
       name: 'User & Deck',
       score: 'Deck Status',
       status: 'Payment'
+    },
+    // Detail-drawer overrides. This tool has no questions, no answers
+    // and no marks, so the drawer drops the score block, the PDF button
+    // and the Q&A list, and renders plain label/value sections instead.
+    detailView: {
+      title: 'Deck Details',
+      loadingText: 'Fetching deck details...',
+      dateLabel: 'Created',
+      showScore: false,
+      showPdf: false
     }
   }
 };

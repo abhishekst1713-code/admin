@@ -973,7 +973,9 @@ app.get('/api/assessments/:dbId/candidates/:candidateId', async (req, res) => {
     } else {
       details = adapter.getMockCandidateDetails(candidateId);
     }
-    res.json(details);
+    // Per-tool drawer overrides (title, whether a score/PDF makes
+    // sense). Null for the assessment tools, which keep the defaults.
+    res.json({ ...details, detailView: adapter.metadata.detailView || null });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

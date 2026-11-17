@@ -806,6 +806,81 @@ body {
   color: var(--text-secondary);
 }
 
+/* Detail-drawer sections for tools that aren't assessments: plain
+   label/value rows rather than questions, answers and marks. Reuses the
+   same tokens as .question-* above so both layouts stay in step. */
+.detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.detail-section-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 0.75rem 0;
+}
+
+.detail-field-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.detail-field {
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) 1fr;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border-color);
+  align-items: baseline;
+}
+
+.detail-field:last-child {
+  border-bottom: none;
+}
+
+.detail-field dt {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.detail-field dd {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.detail-field dd.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.detail-field dd.tone-success { color: var(--accent-success); }
+.detail-field dd.tone-danger  { color: var(--accent-danger); }
+.detail-field dd.tone-warning { color: #d97706; }
+
+.detail-field dd a {
+  color: var(--accent-primary, #0b5fff);
+  text-decoration: underline;
+}
+
+@media (max-width: 560px) {
+  .detail-field {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+}
+
 .question-list {
   display: flex;
   flex-direction: column;
