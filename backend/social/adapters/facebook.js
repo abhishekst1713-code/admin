@@ -168,18 +168,74 @@ async function sendReply(account, externalId, message) {
   return { externalId: data.message_id };
 }
 
+/**
+ * Graph metric name -> the internal analytics_snapshots.metric name this
+ * app stores it under (see routes/social.js's FOLLOWER_METRIC etc., which
+ * read these names back for the Brand Health summary).
+ *
+ * This used to request page_impressions, page_fans and page_engaged_users
+ * and derive the stored name by stripping "page_". ALL THREE of those
+ * metrics have since been retired by Meta, and because Graph fails the
+ * whole /insights call if even one requested metric is invalid, the
+ * result was that NO analytics were collected at all — the
+ * "(#100) The value must be a valid insights metric" error in the logs.
+ *
+ * The replacements below were each verified live against the connected
+ * Page on Graph v21.0 (period=day), rather than guessed:
+ *
+ *   page_fans          -> GONE. page_follows is the audience-size metric
+ *                         now (Meta moved Pages from likes to followers),
+ *                         so it is stored under the same "fans" name to
+ *                         keep the follower series continuous.
+ *   page_engaged_users -> GONE, with no equivalent: it counted unique
+ *                         *people*, and nothing Meta still serves does.
+ *                         page_post_engagements counts engagement
+ *                         *actions*, so it is stored under its own name
+ *                         rather than reusing "engaged_users" — that
+ *                         would silently redefine the old rows.
+ *   page_impressions   -> GONE, no replacement at Page level. Nothing is
+ *                         substituted for it; see the REACH_METRIC note
+ *                         in routes/social.js.
+ */
+const PAGE_METRICS = {
+  page_follows: 'fans',
+  page_post_engagements: 'post_engagements',
+  page_views_total: 'views',
+  page_daily_follows_unique: 'follows_gained',
+  page_daily_unfollows_unique: 'follows_lost',
+  page_actions_post_reactions_total: 'reactions'
+};
+
+/**
+ * Insights values are usually numbers, but some metrics return an object
+ * broken down by type (page_actions_post_reactions_total comes back as
+ * e.g. {"like": 4}). Number({}) is NaN, which would have written junk
+ * into analytics_snapshots, so object values are summed.
+ */
+function metricValue(raw) {
+  if (raw === null || raw === undefined) return 0;
+  if (typeof raw === 'object') {
+    return Object.values(raw).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  }
+  return Number(raw) || 0;
+}
+
 async function fetchAnalytics(account) {
   const data = await metaOAuth.graphFetch(`/${account.externalAccountId}/insights`, {
-    metric: 'page_impressions,page_fans,page_engaged_users',
+    metric: Object.keys(PAGE_METRICS).join(','),
     period: 'day',
     access_token: account.accessToken
   });
 
   const out = [];
   for (const series of data.data || []) {
-    const metric = series.name.replace('page_', '');
+    // Unknown series name = Meta returned something not asked for; skip
+    // rather than storing it under a made-up name.
+    const metric = PAGE_METRICS[series.name];
+    if (!metric) continue;
     for (const point of series.values || []) {
-      out.push({ metric, value: Number(point.value || 0), capturedDate: point.end_time.slice(0, 10) });
+      if (!point.end_time) continue;
+      out.push({ metric, value: metricValue(point.value), capturedDate: point.end_time.slice(0, 10) });
     }
   }
   return out;

@@ -537,8 +537,16 @@ protectedRouter.get('/social/analytics', async (req, res) => {
 // reports that column as null rather than a fabricated number, same as
 // Zoho's own "NA" for metrics a platform doesn't support.
 const FOLLOWER_METRIC = { youtube: 'followers', facebook: 'fans', instagram: 'follower_count' };
-const REACH_METRIC = { facebook: 'impressions', instagram: 'reach' };
-const ENGAGEMENT_METRIC = { facebook: 'engaged_users' };
+// Facebook has NO Page-level reach/impressions metric any more: Meta
+// retired page_impressions outright with no replacement. It is left out
+// deliberately so the Reach column reports null for Facebook, rather than
+// latestMetricValue() finding the newest surviving "impressions" row from
+// before the deprecation and presenting a months-old number as current.
+const REACH_METRIC = { instagram: 'reach' };
+// page_engaged_users is retired too. page_post_engagements replaces it in
+// spirit but counts actions rather than unique people, so it is read under
+// its own name — see the PAGE_METRICS comment in social/adapters/facebook.js.
+const ENGAGEMENT_METRIC = { facebook: 'post_engagements' };
 const SUMMARY_WINDOW_DAYS = 30;
 
 async function latestMetricValue(client, accountId, metric) {
