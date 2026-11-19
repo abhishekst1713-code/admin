@@ -45,9 +45,11 @@ const TOOLS = [
     // 0 rows in all of users/projects/jobs/subscriptions, so this will
     // report "empty" until a service_role key is used (or data exists).
     { dbId: 'db7', name: 'Pitch Deck Builder', table: 'projects' },
-    // db8 likewise: its record list is users (482 rows) rather than
-    // dpr_reports, which is still empty — see adapters/db8.js.
-    { dbId: 'db8', name: 'DPR Generator', table: 'users' }
+    // db8 is not an assessment either. Its usage lives in
+    // dpr_submissions (98 rows, one per filled DPR form); `dpr_reports`
+    // looks right by name but the app never writes to it and it is
+    // permanently empty. See the header of adapters/db8.js.
+    { dbId: 'db8', name: 'DPR Generator', table: 'dpr_submissions' }
 ];
 
 // Keyword groups used to fuzzy-match column names to each capability.

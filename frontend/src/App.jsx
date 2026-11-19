@@ -2624,9 +2624,11 @@ function App() {
                               <strong style={{ fontSize: '0.9rem' }}>
                                 {paymentData.billing.provider} {paymentData.billing.model} billing
                               </strong>
-                              <span className="mode-badge mock" style={{ fontSize: '0.65rem' }}>
-                                {paymentData.billing.subscriptionRows} subscription {paymentData.billing.subscriptionRows === 1 ? 'row' : 'rows'}
-                              </span>
+                              {paymentData.billing.subscriptionRows !== null && paymentData.billing.subscriptionRows !== undefined && (
+                                <span className="mode-badge mock" style={{ fontSize: '0.65rem' }}>
+                                  {paymentData.billing.subscriptionRows} subscription {paymentData.billing.subscriptionRows === 1 ? 'row' : 'rows'}
+                                </span>
+                              )}
                             </div>
 
                             {/* Razorpay one-off payments — the only money
@@ -2680,20 +2682,48 @@ function App() {
                               </div>
                             )}
 
-                            <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
-                              <KpiCard icon={Check} gradient={KPI_GRADIENTS[2]} label="Active subscribers"
-                                value={paymentData.billing.activeSubscribers}
-                                sub={`of ${paymentData.billing.totalUsers} users`} />
-                              <KpiCard icon={FileCheck2} gradient={KPI_GRADIENTS[1]} label="On trial"
-                                value={paymentData.billing.trialingSubscribers}
-                                sub="No money moved yet" />
-                              <KpiCard icon={AlertCircle} gradient={KPI_GRADIENTS[3]} label="Canceled"
-                                value={paymentData.billing.canceledSubscriptions}
-                                sub={`${paymentData.billing.pastDueSubscriptions} past due`} />
-                              <KpiCard icon={Calendar} gradient={KPI_GRADIENTS[0]} label="Renews in 30d"
-                                value={paymentData.billing.renewalsNext30d}
-                                sub={`${paymentData.billing.checkoutReach} reached checkout`} />
-                            </div>
+                            {/* Subscriber counts, for a tool that actually has
+                                subscriptions. db8 (DPR) is one-off per-report
+                                with no subscriptions table at all, so it sets
+                                subscriptionsAvailable: false and gets the
+                                acquisition funnel below instead — four zeroed
+                                subscriber cards would read as churn rather
+                                than as "not applicable". */}
+                            {paymentData.billing.subscriptionsAvailable !== false && (
+                              <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+                                <KpiCard icon={Check} gradient={KPI_GRADIENTS[2]} label="Active subscribers"
+                                  value={paymentData.billing.activeSubscribers}
+                                  sub={`of ${paymentData.billing.totalUsers} users`} />
+                                <KpiCard icon={FileCheck2} gradient={KPI_GRADIENTS[1]} label="On trial"
+                                  value={paymentData.billing.trialingSubscribers}
+                                  sub="No money moved yet" />
+                                <KpiCard icon={AlertCircle} gradient={KPI_GRADIENTS[3]} label="Canceled"
+                                  value={paymentData.billing.canceledSubscriptions}
+                                  sub={`${paymentData.billing.pastDueSubscriptions} past due`} />
+                                <KpiCard icon={Calendar} gradient={KPI_GRADIENTS[0]} label="Renews in 30d"
+                                  value={paymentData.billing.renewalsNext30d}
+                                  sub={`${paymentData.billing.checkoutReach} reached checkout`} />
+                              </div>
+                            )}
+
+                            {/* Acquisition funnel above checkout — where a
+                                per-report tool actually loses people. */}
+                            {paymentData.billing.peopleReached !== undefined && (
+                              <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+                                <KpiCard icon={User} gradient={KPI_GRADIENTS[0]} label="People reached"
+                                  value={paymentData.billing.peopleReached}
+                                  sub="Registered, submitted or paid" />
+                                <KpiCard icon={FileCheck2} gradient={KPI_GRADIENTS[1]} label="Filled the form"
+                                  value={paymentData.billing.peopleWhoSubmitted}
+                                  sub={`${paymentData.billing.formsSubmitted} submissions in total`} />
+                                <KpiCard icon={CreditCard} gradient={KPI_GRADIENTS[2]} label="Reached checkout"
+                                  value={paymentData.billing.checkoutReach}
+                                  sub={`${paymentData.billing.submitToCheckoutRate}% of those who filled it`} />
+                                <KpiCard icon={Check} gradient={KPI_GRADIENTS[3]} label="Paid"
+                                  value={paymentData.billing.razorpayPayers}
+                                  sub={`${paymentData.billing.ordersPaid} of ${paymentData.billing.ordersCreated} orders captured`} />
+                              </div>
+                            )}
 
                             {paymentData.billing.planBreakdown && paymentData.billing.planBreakdown.length > 0 && (
                               <div style={{ overflowX: 'auto' }}>
