@@ -232,6 +232,70 @@ function displayCompany(user, profile) {
   return null;
 }
 
+/**
+ * Load-test accounts.
+ *
+ * 460 of this project's 482 user rows are on @vkf.org and another 6 on
+ * @example.com — automated test fixtures, not people. 388 are literally
+ * named "User A"/"User B" with a usera_<hex>@vkf.org address, the rest
+ * are e2e_<sector>_<hex>@ and promoter_p13a_<hex>@ runs from the same
+ * August batch. Left in, they bury the ~16 real signups and make every
+ * count on the dashboard meaningless.
+ *
+ * They are hidden from the record list rather than deleted — this panel
+ * is read-only against that database — and the number hidden is always
+ * reported back to the operator, because quietly shrinking a user base
+ * from 482 to 16 would be its own kind of lie.
+ *
+ * Override with DB8_TEST_EMAIL_DOMAINS (comma-separated), or set
+ * DB8_HIDE_TEST_ACCOUNTS=false to show everything.
+ */
+const DEFAULT_TEST_DOMAINS = ['vkf.org', 'example.com'];
+
+function testEmailDomains() {
+  const raw = process.env.DB8_TEST_EMAIL_DOMAINS;
+  if (raw === undefined) return DEFAULT_TEST_DOMAINS;
+  return raw.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+}
+
+function hideTestAccounts() {
+  return String(process.env.DB8_HIDE_TEST_ACCOUNTS || 'true').toLowerCase() !== 'false';
+}
+
+function isTestAccount(user, domains) {
+  const email = String(user.email || '').toLowerCase().trim();
+  const at = email.lastIndexOf('@');
+  if (at === -1) return false;
+  const domain = email.slice(at + 1);
+  return domains.includes(domain);
+}
+
+/** Splits users into the ones worth showing and the test fixtures. */
+function partitionUsers(users) {
+  if (!hideTestAccounts()) return { real: users || [], hidden: [] };
+  const domains = testEmailDomains();
+  const real = [], hidden = [];
+  let missingEmail = 0;
+  (users || []).forEach(u => {
+    // The filter keys off the email domain, so a caller that forgot to
+    // SELECT email would silently show every test account. Say so loudly
+    // rather than quietly returning the wrong set.
+    if (!('email' in (u || {}))) missingEmail++;
+    (isTestAccount(u, domains) ? hidden : real).push(u);
+  });
+  if (missingEmail) {
+    console.warn(`[db8] partitionUsers got ${missingEmail} row(s) with no email column — test accounts cannot be filtered out of this query. Add 'email' to its select().`);
+  }
+  return { real, hidden };
+}
+
+function hiddenNotice(hidden) {
+  if (!hidden.length) return null;
+  const domains = testEmailDomains().join(', ');
+  return `${hidden.length} load-test ${hidden.length === 1 ? 'account' : 'accounts'} hidden (${domains}). ` +
+    `Set DB8_HIDE_TEST_ACCOUNTS=false to show them.`;
+}
+
 /* ──────────────────────────── adapter ──────────────────────────── */
 
 /**
@@ -254,8 +318,9 @@ async function getCandidates(supabase) {
     console.warn(`[db8] dpr_reports unreadable, report counts will read 0: ${reportsRes.error.message}`);
   }
   const byUser = reportsByUser(reportsRes.error ? [] : reportsRes.data);
+  const { real, hidden } = partitionUsers(usersRes.data);
 
-  return (usersRes.data || []).map(user => {
+  const candidates = real.map(user => {
     const profile = profiles.get(user.id);
     const reports = byUser.get(user.id) || [];
     const eng = engagement(user, reports.length);
@@ -279,6 +344,8 @@ async function getCandidates(supabase) {
       statusTone: eng.tone
     };
   });
+
+  return { candidates, notice: hiddenNotice(hidden) };
 }
 
 /**
@@ -442,7 +509,9 @@ async function getUserBreakdown(supabase) {
   if (usersRes.error) throw usersRes.error;
   const byUser = reportsByUser(reportsRes.error ? [] : reportsRes.data);
 
-  const users = (usersRes.data || []).map(u => {
+  // Same filter as the record list, so "unique users" here can never
+  // disagree with the number of rows shown there.
+  const users = partitionUsers(usersRes.data).real.map(u => {
     const reports = byUser.get(u.id) || [];
     const eng = engagement(u, reports.length);
     const lastReport = reports.length ? reports[0].created_at : null;
@@ -479,7 +548,7 @@ async function getUserBreakdown(supabase) {
  */
 async function getOrgBreakdown(supabase) {
   const [usersRes, reportsRes] = await Promise.all([
-    supabase.from(TABLES.USERS).select('id, company, created_at, last_login_at'),
+    supabase.from(TABLES.USERS).select('id, email, company, created_at, last_login_at'),
     supabase.from(TABLES.REPORTS).select('id, user_id')
   ]);
 
@@ -487,7 +556,7 @@ async function getOrgBreakdown(supabase) {
   const byUser = reportsByUser(reportsRes.error ? [] : reportsRes.data);
 
   const orgMap = {};
-  (usersRes.data || []).forEach(u => {
+  partitionUsers(usersRes.data).real.forEach(u => {
     const key = blank(u.company) ? 'Not provided' : String(u.company).trim();
     if (!orgMap[key]) {
       orgMap[key] = { organization: key, totalAssessments: 0, scoreSum: 0, lastActivity: null };
@@ -515,13 +584,13 @@ async function getOrgBreakdown(supabase) {
 async function getRetentionCohort(supabase) {
   const { data, error } = await supabase
     .from(TABLES.USERS)
-    .select('id, created_at');
+    .select('id, email, created_at');
 
   if (error) throw error;
   // Cohort on the user's own id: one "event" per registration. Once
   // reports exist this should move to dpr_reports, which is what repeat
   // usage actually looks like for this tool.
-  return buildRetentionCohort(data, 'id', 'created_at');
+  return buildRetentionCohort(partitionUsers(data).real, 'id', 'created_at');
 }
 
 /*

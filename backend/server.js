@@ -548,29 +548,40 @@ function computeToolTier({ stats, trend, paymentRate }) {
 // Fetch (live-or-mock) candidates for one adapter, same fallback logic
 // used everywhere else in this file. Live attempts are timed and
 // recorded into healthStats regardless of outcome.
+// An adapter returns either a plain array of candidates, or
+// { candidates, notice } when it has something to say about the list —
+// e.g. db8 hides load-test accounts and reports how many it hid. Hiding
+// rows silently would misstate the size of a tool's user base, so the
+// notice travels with the data rather than living in a static label.
+function normalizeCandidates(result) {
+  if (Array.isArray(result)) return { candidates: result, notice: null };
+  return { candidates: (result && result.candidates) || [], notice: (result && result.notice) || null };
+}
+
 async function fetchCandidatesForTool(dbId) {
   const adapter = ADAPTERS[dbId];
   const client = getSupabaseClient(dbId);
   let isMock = false;
   let candidates = [];
+  let notice = null;
 
   if (client) {
     const start = Date.now();
     try {
-      candidates = await adapter.getCandidates(client);
+      ({ candidates, notice } = normalizeCandidates(await adapter.getCandidates(client)));
       recordHealth(dbId, { ok: true, latencyMs: Date.now() - start });
     } catch (err) {
       console.warn(`Query failed for ${dbId}, falling back to mock data. Error:`, err.message);
-      candidates = adapter.getMockCandidates();
+      ({ candidates, notice } = normalizeCandidates(adapter.getMockCandidates()));
       isMock = true;
       recordHealth(dbId, { ok: false, latencyMs: Date.now() - start, error: err.message });
     }
   } else {
-    candidates = adapter.getMockCandidates();
+    ({ candidates, notice } = normalizeCandidates(adapter.getMockCandidates()));
     isMock = true;
   }
 
-  return { adapter, candidates, isMock };
+  return { adapter, candidates, isMock, notice };
 }
 
 // Tool-wise monitoring table data (doc section 2), enriched with score
@@ -924,18 +935,19 @@ app.get('/api/assessments/:dbId/candidates', async (req, res) => {
   const client = getSupabaseClient(dbId);
   try {
     let candidates = [];
+    let notice = null;
     let isMock = false;
 
     if (client) {
       try {
-        candidates = await adapter.getCandidates(client);
+        ({ candidates, notice } = normalizeCandidates(await adapter.getCandidates(client)));
       } catch (err) {
         console.warn(`Query failed for ${dbId}, falling back to mock.`, err.message);
-        candidates = adapter.getMockCandidates();
+        ({ candidates, notice } = normalizeCandidates(adapter.getMockCandidates()));
         isMock = true;
       }
     } else {
-      candidates = adapter.getMockCandidates();
+      ({ candidates, notice } = normalizeCandidates(adapter.getMockCandidates()));
       isMock = true;
     }
 
@@ -946,6 +958,9 @@ app.get('/api/assessments/:dbId/candidates', async (req, res) => {
       // tools that aren't assessments set this (see db7); everything
       // else returns null and keeps the default Score / Status headers.
       columns: adapter.metadata.candidateColumns || null,
+      // Anything the adapter wants the operator to know about this list
+      // (e.g. "466 load-test accounts hidden"). Null for most tools.
+      notice,
       candidates
     });
   } catch (error) {

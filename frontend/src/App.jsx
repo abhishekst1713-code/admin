@@ -1246,6 +1246,8 @@ function App() {
   const [assessmentMode, setAssessmentMode] = useState('mock');
   // Per-tool header overrides for the record table (null = defaults).
   const [candidateColumns, setCandidateColumns] = useState(null);
+  // Adapter-supplied note about the list (e.g. hidden test accounts).
+  const [candidateNotice, setCandidateNotice] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Organization / User / Dimension monitoring for the selected tool
@@ -1622,6 +1624,7 @@ function App() {
           setAssessmentName(data.assessmentName || 'Assessment Tool');
           setAssessmentMode(data.mode || 'mock');
           setCandidateColumns(data.columns || null);
+          setCandidateNotice(data.notice || null);
         } catch (err) {
           console.error(err);
         } finally {
@@ -2959,6 +2962,13 @@ function App() {
               <div className="title-area">
                 <h1>{assessmentName}</h1>
                 <p>{candidateColumns?.subtitle || 'Browsing and managing database answers and scoring records.'}</p>
+                {candidateNotice && (
+                  <p style={{
+                    marginTop: '0.35rem', fontSize: '0.84rem', color: '#d97706', fontWeight: 600
+                  }}>
+                    {candidateNotice}
+                  </p>
+                )}
               </div>
               <div className="mode-badge-wrap" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                 <span className={`mode-badge ${assessmentMode === 'live' ? 'live' : 'mock'}`}>
